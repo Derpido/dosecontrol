@@ -1,0 +1,1735 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="DoseControl prototype: monitor simulated vancomycin patients and approve dose recommendations from a microneedle patch.">
+<style>:root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); } body { margin: 0; } img { max-width: 100%; } [hidden] { display: none !important; }</style>
+<title>DoseControl</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a sticky ward bar over a calm board of patient cards; a patient page leads with the dose decision, then the evidence behind it. */
+:root {
+  --bg: #F2F5F4;
+  --surface: #FFFFFF;
+  --surface-2: #F6F8F7;
+  --sunken: #E9EEEC;
+  --ink: #16201E;
+  --ink-2: #46524F;
+  --ink-3: #5F6B68;
+  --line: #DFE5E3;
+  --line-2: #C9D2CF;
+  --accent: #1D5F73;
+  --accent-hover: #174D5E;
+  --accent-soft: #E3EFF2;
+  --on-accent: #FFFFFF;
+  --ok: #276B43;
+  --ok-soft: #E3F1E8;
+  --warn: #8F5400;
+  --warn-soft: #FBF0DC;
+  --crit: #AE2F29;
+  --crit-soft: #FAE6E4;
+  --info: #3D5560;
+  --info-soft: #E8EEF0;
+  --band: #E1EFE6;
+  --bar: #9AA7A3;
+  --scrim: rgba(14, 22, 20, 0.32);
+  --toast-bg: #16201E;
+  --toast-fg: #F2F5F4;
+  --shadow: 0 1px 2px rgba(22, 32, 30, 0.05), 0 4px 14px rgba(22, 32, 30, 0.06);
+  --font-ui: "Atkinson Hyperlegible", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --r: 12px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0E1413; --surface: #151D1B; --surface-2: #19221F; --sunken: #0B100F;
+    --ink: #E2EAE7; --ink-2: #AEBBB7; --ink-3: #8E9C98; --line: #24302D; --line-2: #33423E;
+    --accent: #7EC1D2; --accent-hover: #9AD0DE; --accent-soft: #17323A; --on-accent: #0A1A1F;
+    --ok: #79C797; --ok-soft: #132A1D; --warn: #E5B25F; --warn-soft: #2D2310; --crit: #EF928A; --crit-soft: #361A18;
+    --info: #A9C1CA; --info-soft: #1A272C; --band: #15291E; --bar: #5E6E6A;
+    --scrim: rgba(0, 0, 0, 0.5); --toast-bg: #E2EAE7; --toast-fg: #0E1413; --shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0E1413; --surface: #151D1B; --surface-2: #19221F; --sunken: #0B100F;
+  --ink: #E2EAE7; --ink-2: #AEBBB7; --ink-3: #8E9C98; --line: #24302D; --line-2: #33423E;
+  --accent: #7EC1D2; --accent-hover: #9AD0DE; --accent-soft: #17323A; --on-accent: #0A1A1F;
+  --ok: #79C797; --ok-soft: #132A1D; --warn: #E5B25F; --warn-soft: #2D2310; --crit: #EF928A; --crit-soft: #361A18;
+  --info: #A9C1CA; --info-soft: #1A272C; --band: #15291E; --bar: #5E6E6A;
+  --scrim: rgba(0, 0, 0, 0.5); --toast-bg: #E2EAE7; --toast-fg: #0E1413; --shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+  color-scheme: dark;
+}
+
+html { -webkit-text-size-adjust: 100%; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.45 var(--font-ui); }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--bg); }
+.wrap { max-width: 1320px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+h1, h2, h3 { margin: 0; text-wrap: balance; }
+p { margin: 0; }
+button, select, input, textarea { font: inherit; color: inherit; }
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mono { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+.muted { color: var(--ink-3); font-weight: 400; }
+svg { flex: none; }
+
+/* notice + bar */
+.notice { background: var(--sunken); color: var(--ink-2); font-size: 13px; }
+.notice .wrap { padding-block: 6px; display: flex; align-items: center; gap: 8px; }
+.notice svg { width: 15px; height: 15px; color: var(--ink-3); }
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--surface); border-bottom: 1px solid var(--line); }
+.bar-in { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 18px; padding-block: 10px; }
+.brand { display: inline-flex; align-items: center; gap: 9px; color: var(--ink); text-decoration: none; font-weight: 700; font-size: 18px; letter-spacing: -0.01em; }
+.brand svg { width: 26px; height: 26px; }
+.ward-name { color: var(--ink-2); font-size: 14px; padding-left: 16px; border-left: 1px solid var(--line); }
+.clock { display: flex; align-items: baseline; gap: 8px; margin-left: auto; }
+.clock-time { font-family: var(--font-data); font-size: 21px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.clock-day { color: var(--ink-3); font-size: 13.5px; }
+.speed { align-self: center; font-size: 12px; font-weight: 700; color: var(--accent); background: var(--accent-soft); padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+.bar-actions { display: flex; align-items: center; gap: 10px; }
+.pill-btn { display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: 999px; padding: 7px 12px; font-size: 14px; font-weight: 700; background: var(--crit-soft); color: var(--crit); cursor: pointer; white-space: nowrap; }
+.pill-btn svg { width: 16px; height: 16px; }
+.icon-btn { position: relative; display: inline-grid; place-items: center; width: 38px; height: 38px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); cursor: pointer; }
+.icon-btn:hover { background: var(--surface-2); }
+.icon-btn svg { width: 20px; height: 20px; }
+.badge { position: absolute; top: -6px; right: -7px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px; background: var(--crit); color: var(--surface); font: 700 12px/20px var(--font-ui); text-align: center; }
+.user { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--ink-2); }
+.avatar { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 13px; }
+@media (max-width: 820px) {
+  .ward-name, .user-name { display: none; }
+  .bar-actions { width: 100%; justify-content: space-between; }
+}
+@media (max-width: 480px) {
+  .user, .pill-word { display: none; }
+  .bar-actions { gap: 8px; }
+  .ward-tools .seg { flex-wrap: wrap; }
+}
+
+/* controls */
+.seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--sunken); max-width: 100%; overflow-x: auto; }
+.seg button { border: 0; background: transparent; padding: 6px 11px; border-radius: 8px; font-size: 14px; color: var(--ink-2); cursor: pointer; white-space: nowrap; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); font-weight: 700; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1); }
+.seg .ct { font-family: var(--font-data); font-size: 12.5px; margin-left: 5px; color: var(--ink-3); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 15px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); font-size: 15px; font-weight: 700; cursor: pointer; text-decoration: none; }
+.btn:hover { background: var(--surface-2); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn.quiet { background: transparent; border-color: transparent; color: var(--accent); }
+.btn.quiet:hover { background: var(--accent-soft); }
+.btn.small { padding: 6px 11px; font-size: 14px; }
+select { padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); max-width: 100%; }
+
+/* chips */
+.chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px 3px 7px; border-radius: 999px; font-size: 13px; font-weight: 700; white-space: nowrap; }
+.chip svg { width: 15px; height: 15px; }
+.crit { --c: var(--crit); --cs: var(--crit-soft); }
+.warn { --c: var(--warn); --cs: var(--warn-soft); }
+.ok { --c: var(--ok); --cs: var(--ok-soft); }
+.info { --c: var(--info); --cs: var(--info-soft); }
+.chip, .tag, .calm-ic, .ai { color: var(--c, var(--ink-2)); background: var(--cs, var(--sunken)); }
+
+/* ward */
+.page { padding-block: 22px 112px; }
+.ward-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px 24px; margin-bottom: 18px; }
+.ward-head h1 { font-size: 27px; line-height: 1.15; letter-spacing: -0.01em; }
+.sub { color: var(--ink-2); margin-top: 4px; }
+.ward-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; max-width: 100%; }
+.grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); }
+.card { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); color: var(--ink); text-decoration: none; transition: border-color 0.15s, box-shadow 0.15s; }
+.card:hover { border-color: var(--line-2); box-shadow: var(--shadow); }
+.card.s-review { border-color: color-mix(in srgb, var(--crit) 45%, var(--line)); }
+.card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.bed { font-family: var(--font-data); font-size: 13px; color: var(--ink-2); letter-spacing: 0.02em; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.who b { display: block; font-size: 17px; line-height: 1.25; }
+.who span { color: var(--ink-2); font-size: 13.5px; }
+.lbl { font-size: 12px; font-weight: 700; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.06em; }
+.exp-v { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 6px; margin-top: 2px; }
+.num { font-family: var(--font-data); font-size: 28px; font-weight: 500; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.unit { color: var(--ink-3); font-size: 13px; }
+.trend { margin-left: auto; display: inline-flex; align-items: center; gap: 3px; font-size: 13px; color: var(--ink-2); }
+.trend svg { width: 14px; height: 14px; }
+.gauge { position: relative; height: 10px; margin: 12px 0 2px; border-radius: 999px; background: var(--sunken); }
+.g-band { position: absolute; top: 0; bottom: 0; background: var(--band); border-left: 1.5px solid var(--ok); border-right: 1.5px solid var(--ok); }
+.g-ring, .g-dot { position: absolute; top: 50%; border-radius: 50%; transform: translate(-50%, -50%); }
+.g-ring { width: 18px; height: 18px; border: 2px solid var(--ink); }
+.g-dot { width: 10px; height: 10px; background: var(--ink); }
+.g-scale { position: relative; height: 16px; font: 11px var(--font-data); color: var(--ink-3); }
+.g-scale span { position: absolute; top: 2px; transform: translateX(-50%); }
+.exp-f { display: flex; align-items: center; gap: 7px; font-size: 13.5px; color: var(--ink-2); }
+.k-ring { width: 12px; height: 12px; border: 2px solid var(--ink); border-radius: 50%; display: inline-block; }
+.k-dot { width: 8px; height: 8px; background: var(--ink); border-radius: 50%; display: inline-block; margin-inline: 2px; }
+.est-note { display: flex; gap: 9px; align-items: flex-start; padding: 12px; border-radius: 10px; background: var(--info-soft); color: var(--info); font-size: 14px; }
+.est-note svg { width: 17px; height: 17px; margin-top: 1px; }
+.spark-cap { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--ink-3); }
+.spark { height: 36px; }
+.spark svg { display: block; }
+.sp-line { fill: none; stroke: var(--accent); stroke-width: 1.75; stroke-linejoin: round; }
+.sp-area { fill: var(--accent); fill-opacity: 0.08; }
+.sp-end { fill: var(--accent); }
+.det { font-size: 13px; color: var(--ink-2); display: flex; flex-wrap: wrap; gap: 2px 12px; }
+.rec-line { display: flex; gap: 8px; align-items: flex-start; padding: 9px 11px; border-radius: 9px; background: var(--crit-soft); color: var(--crit); font-size: 14px; }
+.rec-line svg { width: 16px; height: 16px; margin-top: 2px; }
+.foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; margin-top: auto; padding-top: 11px; border-top: 1px solid var(--line); font-size: 13.5px; color: var(--ink-2); }
+.foot b { color: var(--ink); }
+.pst { display: inline-flex; align-items: center; gap: 5px; }
+.pst svg { width: 15px; height: 15px; }
+.pst.warn, .pst.crit, .pst.info { color: var(--c); background: none; font-weight: 700; }
+.empty { padding: 28px 16px; text-align: center; color: var(--ink-3); background: var(--surface); border: 1px dashed var(--line-2); border-radius: var(--r); }
+.chart .empty { padding: 18px 12px; }
+.foot-note { margin-top: 18px; max-width: 82ch; font-size: 13.5px; color: var(--ink-3); }
+.foot-note .k-ring, .foot-note .k-dot { vertical-align: -1px; }
+
+/* patient page */
+.back { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 14px; font-weight: 700; text-decoration: none; }
+.back svg { width: 18px; height: 18px; }
+.pv-head { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.pv-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.pv-title h1 { font-size: 28px; line-height: 1.15; letter-spacing: -0.01em; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 165px), 1fr)); gap: 12px 18px; margin: 10px 0 0; padding: 14px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); }
+.fact { min-width: 0; }
+.fact dt { font-size: 12px; font-weight: 700; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.06em; }
+.fact dd { margin: 3px 0 0; font-weight: 700; }
+.decide { display: flex; flex-direction: column; gap: 16px; margin-bottom: 16px; padding: 20px; background: var(--surface); border: 1.5px solid var(--accent); border-radius: 14px; }
+.decide.calm { border: 1px solid var(--line); padding: 16px 18px; }
+.eyebrow { font-size: 12.5px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 0.07em; }
+.decide h2 { margin-top: 4px; font-size: 23px; line-height: 1.2; }
+.decide.calm h2 { font-size: 18px; margin-top: 0; }
+.calm-row { display: flex; gap: 12px; align-items: flex-start; }
+.calm-ic { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+.calm-ic svg { width: 19px; height: 19px; }
+.compare { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 12px; }
+.opt { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; }
+.opt.rec { border-color: var(--accent); background: var(--accent-soft); }
+.opt-l { font-size: 13.5px; font-weight: 700; color: var(--ink-2); }
+.big { font-family: var(--font-data); font-size: 31px; font-weight: 500; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.arrow { align-self: center; color: var(--ink-3); font-size: 22px; }
+.tag { align-self: flex-start; margin-top: 6px; padding: 2px 9px; border-radius: 999px; font-size: 12.5px; font-weight: 700; }
+@media (max-width: 600px) { .compare { grid-template-columns: minmax(0, 1fr); } .arrow { display: none; } }
+.why { display: flex; flex-direction: column; gap: 6px; margin: 0; padding-left: 20px; max-width: 78ch; color: var(--ink-2); }
+.why b { color: var(--ink); }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.confirm { display: flex; flex-direction: column; gap: 12px; padding-top: 16px; border-top: 1px solid var(--line); }
+.check { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; max-width: 70ch; }
+.check input { width: 20px; height: 20px; margin: 1px 0 0; accent-color: var(--accent); flex: none; }
+.fine { font-size: 13.5px; color: var(--ink-3); }
+.field { display: flex; flex-direction: column; gap: 6px; max-width: 420px; }
+.field label { font-size: 14px; font-weight: 700; }
+.dose-opts { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr)); }
+.dose-opt { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+.dose-opt input { accent-color: var(--accent); width: 18px; height: 18px; margin: 0; flex: none; }
+.dose-opt:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.do-main { display: flex; flex-direction: column; min-width: 0; }
+.do-sub { font-size: 13px; color: var(--ink-2); }
+.do-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.do-tag { font-size: 12px; font-weight: 700; color: var(--accent); }
+.pv-grid, .col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.cols { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 980px) { .cols { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); } }
+.panel { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); }
+.panel-h { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.panel h2 { font-size: 17px; }
+.cap { margin-top: 2px; font-size: 13.5px; color: var(--ink-3); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--ink-2); }
+.lg { display: inline-flex; align-items: center; gap: 7px; }
+.sw-line { width: 18px; border-top: 2.5px solid var(--accent); }
+.sw-dash { width: 18px; border-top: 2px dashed var(--ink-3); }
+.sw-dash.acc { border-top-color: var(--accent); }
+.sw-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-3); opacity: 0.6; }
+.sw-dose { width: 12px; height: 7px; border-radius: 2px; background: var(--ink-3); }
+.chart { position: relative; min-width: 0; }
+.chart svg { display: block; max-width: 100%; height: auto; }
+.tip { position: absolute; top: 4px; z-index: 2; min-width: 170px; padding: 8px 10px; border: 1px solid var(--line-2); border-radius: 9px; background: var(--surface); box-shadow: var(--shadow); font-size: 13px; color: var(--ink-2); pointer-events: none; }
+.tip b { font-family: var(--font-data); color: var(--ink); }
+.tip-t { font-family: var(--font-data); font-weight: 500; color: var(--ink); margin-bottom: 2px; }
+.rows { display: flex; flex-direction: column; }
+.row { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; gap: 10px; align-items: baseline; padding: 9px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.row:first-child { border-top: 0; }
+.row .st { font-size: 13px; color: var(--ink-3); text-align: right; }
+.row .st.next { color: var(--accent); font-weight: 700; }
+.row-h { font-size: 12px; font-weight: 700; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.06em; padding-top: 4px; }
+time small, .tm small { display: block; font-family: var(--font-ui); font-size: 12px; color: var(--ink-3); }
+.tm { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+.kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 7px 14px; margin: 0; font-size: 14px; }
+.kv dt { color: var(--ink-3); }
+.kv dd { margin: 0; text-align: right; font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+.wear-row { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; }
+.wear { height: 8px; overflow: hidden; border-radius: 999px; background: var(--sunken); }
+.wear span { display: block; height: 100%; background: var(--accent); }
+.wear.warn span { background: var(--warn); }
+.wear.crit span { background: var(--crit); }
+.log { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.log li { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.log li:first-child { border-top: 0; }
+.log time { font-family: var(--font-data); font-size: 13px; color: var(--ink-2); }
+.log .by { color: var(--ink-3); }
+.ld { display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: var(--line-2); vertical-align: 1px; }
+.ld.acc { background: var(--accent); }
+.ld.ok { background: var(--ok); }
+.ld.warn { background: var(--warn); }
+
+/* chart marks */
+.c-grid { stroke: var(--line); stroke-width: 1; }
+.c-tick { stroke: var(--line-2); }
+.c-ax { fill: var(--ink-3); font: 11.5px var(--font-data); }
+.c-zone { fill: var(--surface-2); }
+.c-zl { fill: var(--ink-3); font: 12px var(--font-ui); }
+.c-est { fill: none; stroke: var(--accent); stroke-width: 2.25; stroke-linejoin: round; }
+.c-reads circle { fill: var(--ink-3); fill-opacity: 0.55; }
+.c-fc { fill: none; stroke: var(--ink-3); stroke-width: 1.75; stroke-dasharray: 5 4; }
+.c-fr { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 5 4; }
+.c-now { stroke: var(--ink-2); stroke-width: 1; stroke-dasharray: 2 3; }
+.c-nowl { fill: var(--ink-2); font: 700 12px var(--font-ui); }
+.c-end { fill: var(--accent); stroke: var(--surface); stroke-width: 2; }
+.c-dose { fill: var(--ink-3); }
+.c-dose-f { fill: var(--surface); stroke: var(--ink-3); stroke-width: 1.25; }
+.c-dl { fill: var(--ink-2); font: 11px var(--font-data); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+.c-band { fill: var(--band); }
+.c-bandline { stroke: var(--ok); stroke-width: 1; stroke-dasharray: 3 3; }
+.c-bandl { fill: var(--ok); font: 700 11.5px var(--font-ui); }
+.c-bar { fill: var(--bar); }
+.c-bar-hi { fill: var(--crit); fill-opacity: 0.8; }
+.c-bar-lo { fill: var(--warn); fill-opacity: 0.8; }
+.c-val { fill: var(--ink); font: 500 12px var(--font-data); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
+.c-val.on-band { stroke: var(--band); }
+.c-ci { fill: var(--accent); fill-opacity: 0.14; }
+.c-guide { stroke: var(--ink-2); stroke-width: 1; }
+.c-hdot { fill: var(--accent); stroke: var(--surface); stroke-width: 2; }
+.c-hit { fill: transparent; cursor: crosshair; }
+
+/* overlays */
+.scrim { position: fixed; inset: 0; z-index: 40; background: var(--scrim); }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 41; display: flex; flex-direction: column; gap: 14px; width: min(440px, 100%); overflow-y: auto; background: var(--surface); border-left: 1px solid var(--line); box-shadow: var(--shadow);
+  padding-top: calc(16px + env(safe-area-inset-top, 0px)); padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(18px, env(safe-area-inset-left, 0px)); padding-right: calc(18px + env(safe-area-inset-right, 0px)); }
+.drawer-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.drawer h2 { font-size: 20px; }
+.drawer h3 { margin-top: 6px; font-size: 12.5px; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.07em; }
+.alert { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; }
+.alert.sev2 { border-color: color-mix(in srgb, var(--crit) 45%, var(--line)); }
+.alert-h { display: flex; align-items: center; gap: 9px; font-weight: 700; }
+.ai { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+.ai svg { width: 16px; height: 16px; }
+.alert .meta { font-size: 13px; color: var(--ink-3); }
+.alert p { font-size: 14px; color: var(--ink-2); }
+textarea { width: 100%; min-height: 320px; padding: 12px; border: 1px solid var(--line-2); border-radius: 10px; background: var(--surface-2); color: var(--ink); font: 13px/1.55 var(--font-data); resize: vertical; }
+.demo-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.fab { position: fixed; right: calc(16px + env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 30; display: inline-flex; align-items: center; gap: 8px; padding: 10px 15px; border: 1px dashed var(--line-2); border-radius: 999px; background: var(--surface); color: var(--ink-2); font-size: 14px; font-weight: 700; box-shadow: var(--shadow); cursor: pointer; }
+.fab svg { width: 17px; height: 17px; }
+.toast { position: fixed; left: 50%; bottom: calc(78px + env(safe-area-inset-bottom, 0px)); z-index: 50; transform: translateX(-50%); width: max-content; max-width: min(560px, calc(100% - 32px)); padding: 11px 16px; border-radius: 12px; background: var(--toast-bg); color: var(--toast-fg); box-shadow: var(--shadow); font-size: 14.5px; }
+@media (max-width: 480px) {
+  .row { grid-template-columns: 76px minmax(0, 1fr); row-gap: 2px; }
+  .row .st { grid-column: 2; text-align: left; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+<div class="notice"><div class="wrap"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.2v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="4.9" r=".95" fill="currentColor"/></svg><span>Prototype with simulated patients. Not for clinical use.</span></div></div>
+<header class="bar">
+  <div class="wrap bar-in">
+    <a class="brand" href="#" aria-label="DoseControl, all patients">
+      <svg viewBox="0 0 26 26" aria-hidden="true"><rect x="1.5" y="1.5" width="23" height="23" rx="7" fill="none" stroke="currentColor" stroke-width="1.8"/><g fill="currentColor"><circle cx="8" cy="8" r="1.6"/><circle cx="13" cy="8" r="1.6"/><circle cx="18" cy="8" r="1.6"/><circle cx="8" cy="13" r="1.6"/><circle cx="18" cy="13" r="1.6"/><circle cx="8" cy="18" r="1.6"/><circle cx="13" cy="18" r="1.6"/><circle cx="18" cy="18" r="1.6"/></g><circle cx="13" cy="13" r="2.3" style="fill: var(--accent)"/></svg>
+      <span>DoseControl</span>
+    </a>
+    <span class="ward-name">Ward 4B · Medicine</span>
+    <div class="clock"><span class="clock-time" id="clock-time">--:--</span><span class="clock-day" id="clock-day"></span><span class="speed" id="clock-speed" hidden></span></div>
+    <div class="bar-actions">
+      <button class="pill-btn" id="review-pill" data-action="filter" data-v="review" data-key="review-pill" hidden></button>
+      <button class="icon-btn" id="alert-btn" data-action="open-alerts" data-key="alert-btn" aria-label="Alerts"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.8a4.6 4.6 0 0 0-4.6 4.6v2.7L4 13.2h12l-1.4-3.1V7.4A4.6 4.6 0 0 0 10 2.8Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8.2 15.6a1.9 1.9 0 0 0 3.6 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="badge" id="alert-count" hidden></span></button>
+      <div class="seg" role="group" aria-label="Level of detail">
+        <button data-action="view" data-v="simple" data-key="view-simple" aria-pressed="true">Simple</button>
+        <button data-action="view" data-v="detailed" data-key="view-detailed" aria-pressed="false">Detailed</button>
+      </div>
+      <button class="icon-btn" id="theme-btn" data-action="theme" data-key="theme-btn" aria-label="Change theme"></button>
+      <span class="user"><span class="avatar" aria-hidden="true">MC</span><span class="user-name">Maya Chen, RN</span></span>
+    </div>
+  </div>
+</header>
+<main id="main" class="wrap page"></main>
+<div class="scrim" id="scrim" data-action="close-drawer" hidden></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" hidden></aside>
+<button class="fab" id="fab" data-action="open-demo" data-key="fab"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8.3 6.9v6.2l5-3.1z" fill="currentColor"/></svg>Demo controls</button>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script>
+/* DoseControl engine: simulated ward + dosing software.
+   Truth: each virtual patient follows a published two-compartment vancomycin
+   model (Goti et al. 2018) with clearance that can change over time.
+   Software: sees only what a hospital would see (doses given, patch readings,
+   morning creatinine) and estimates each patient's clearance by MAP Bayesian
+   fitting of the last 24 h of patch readings, correcting for the skin delay. */
+(function (root) {
+  'use strict';
+
+  const DT = 0.05;              // hours per integration step (3 min)
+  const STEPS_H = 20;           // steps per hour
+  const READ_STEPS = 5;         // one patch reading every 15 min
+  const DAY_STEPS = 480;
+  const PK = { CL: 4.5, CL_EXP: 0.8, CRCL_REF: 120, V1: 58.4, WT_REF: 70, V2: 38.4, Q: 6.5 };
+  const OMEGA_CL = 0.4, OMEGA_V1 = 0.5;
+  const EST_PROP = 0.15, EST_ADD = 1.0, EST_LAG = 0.75;
+  const TARGET = { lo: 400, hi: 600, mid: 500 };
+  const DOSE = { step: 250, min: 250, max: 2500, loadMax: 3000, rate: 1000 };
+  const PATCH_LIFE_H = 72, PATCH_WARMUP_STEPS = 20, CAL_SD = 0.08;
+  const CHANGE_WINDOW_H = 12, DELTA_SD = 0.15;  // clearance may shift within the last 12 h
+  const MG_DL_TO_UMOL = 88.4;
+
+  function mulberry32(seed) {
+    let a = seed >>> 0;
+    return function () {
+      a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function gauss(r) {
+    let u = 0, v = 0;
+    while (u === 0) u = r();
+    while (v === 0) v = r();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  }
+  const roundDose = (x, max) => Math.min(max || DOSE.max, Math.max(DOSE.min, Math.round(x / DOSE.step) * DOSE.step));
+  const infSteps = amt => Math.max(STEPS_H, Math.round(amt / DOSE.rate * STEPS_H));
+  const popCl = crcl => PK.CL * Math.pow(Math.min(crcl, 150) / PK.CRCL_REF, PK.CL_EXP);
+  const scrFromCrcl = (age, wt, female, crcl) => (140 - age) * wt * (female ? 0.85 : 1) / (72 * crcl);
+
+  /* Analytic two-compartment model with optional first-order skin delay. */
+  function rates(cl, v1, v2, lag) {
+    const k10 = cl / v1, k12 = PK.Q / v1, k21 = PK.Q / v2;
+    const s = k10 + k12 + k21, disc = Math.sqrt(s * s - 4 * k10 * k21);
+    const a = (s + disc) / 2, b = (s - disc) / 2;
+    const A = (a - k21) / (v1 * (a - b)), B = (k21 - b) / (v1 * (a - b));
+    if (!lag) return { c: [A, B], m: [a, b] };
+    let k = 1 / lag;
+    if (Math.abs(k - a) < 1e-6 || Math.abs(k - b) < 1e-6) k *= 1.000001;
+    const D1 = A * k / (k - a), D2 = B * k / (k - b);
+    return { c: [D1, D2, -(D1 + D2)], m: [a, b, k] };
+  }
+  function predictAt(t, doses, R) {
+    let c = 0;
+    for (let i = 0; i < doses.length; i++) {
+      const d = doses[i], dt = t - d.t;
+      if (dt <= 0) continue;
+      const tin = dt < d.tinf ? dt : d.tinf, post = dt > d.tinf ? dt - d.tinf : 0, rate = d.amt / d.tinf;
+      for (let j = 0; j < R.m.length; j++) {
+        const m = R.m[j];
+        c += rate * R.c[j] / m * (1 - Math.exp(-m * tin)) * Math.exp(-m * post);
+      }
+    }
+    return c;
+  }
+
+  /* Amount in the peripheral compartment at time t (analytic). */
+  function periphAt(t, doses, cl, v1, v2) {
+    const k10 = cl / v1, k12 = PK.Q / v1, k21 = PK.Q / v2;
+    const s = k10 + k12 + k21, disc = Math.sqrt(s * s - 4 * k10 * k21), a = (s + disc) / 2, b = (s - disc) / 2;
+    let A2 = 0;
+    for (const d of doses) {
+      const dt = t - d.t;
+      if (dt <= 0) continue;
+      const tin = Math.min(dt, d.tinf), post = Math.max(dt - d.tinf, 0), rate = d.amt / d.tinf;
+      A2 += rate * k12 / (a - b) * ((1 - Math.exp(-b * tin)) * Math.exp(-b * post) / b - (1 - Math.exp(-a * tin)) * Math.exp(-a * post) / a);
+    }
+    return A2;
+  }
+  /* Split doses at time tc; an infusion running across tc is cut into two parts. */
+  function splitDoses(doses, tc) {
+    const pre = [], post = [];
+    for (const d of doses) {
+      const end = d.t + d.tinf;
+      if (end <= tc) pre.push(d);
+      else if (d.t >= tc) post.push(d);
+      else {
+        const rate = d.amt / d.tinf;
+        pre.push({ t: d.t, amt: rate * (tc - d.t), tinf: tc - d.t });
+        post.push({ t: tc, amt: rate * (end - tc), tinf: end - tc });
+      }
+    }
+    return { pre, post };
+  }
+  /* Two-segment model: clearance clA before tc and clB after it. Exact
+     solution: the state at tc (from clA) decays freely under clB, plus the
+     doses given after tc. Lets the estimate follow a change in kidney function. */
+  function makeModel(clA, clB, v1, v2, tc, doses, lag) {
+    const { pre, post } = splitDoses(doses, tc);
+    const RA = rates(clA, v1, v2, 0), RAl = rates(clA, v1, v2, lag);
+    const A1c = predictAt(tc, pre, RA) * v1, A2c = periphAt(tc, pre, clA, v1, v2), Cc = predictAt(tc, pre, RAl);
+    const k10 = clB / v1, k12 = PK.Q / v1, k21 = PK.Q / v2;
+    const s = k10 + k12 + k21, disc = Math.sqrt(s * s - 4 * k10 * k21), a = (s + disc) / 2, b = (s - disc) / 2;
+    const c1 = ((k10 + k12 - b) * A1c - k21 * A2c) / (a - b), c2 = A1c - c1;
+    const RB = rates(clB, v1, v2, 0), RBl = rates(clB, v1, v2, lag);
+    let kl = 1 / lag;
+    if (Math.abs(kl - a) < 1e-6 || Math.abs(kl - b) < 1e-6) kl *= 1.000001;
+    return {
+      plasma(t) {
+        if (t <= tc) return predictAt(t, pre, RA);
+        const u = t - tc;
+        return (c1 * Math.exp(-a * u) + c2 * Math.exp(-b * u)) / v1 + predictAt(t, post, RB);
+      },
+      isf(t) {
+        if (t <= tc) return predictAt(t, pre, RAl);
+        const u = t - tc, ek = Math.exp(-kl * u);
+        return Cc * ek + c1 / v1 * kl / (kl - a) * (Math.exp(-a * u) - ek) + c2 / v1 * kl / (kl - b) * (Math.exp(-b * u) - ek) + predictAt(t, post, RBl);
+      },
+    };
+  }
+
+  /* Nelder-Mead minimiser for the small MAP problem. */
+  function nelderMead(f, x0, step, iters) {
+    const n = x0.length;
+    let pts = [x0.slice()];
+    for (let i = 0; i < n; i++) { const p = x0.slice(); p[i] += step; pts.push(p); }
+    let vals = pts.map(f);
+    for (let it = 0; it < iters; it++) {
+      const idx = vals.map((v, i) => i).sort((a, b) => vals[a] - vals[b]);
+      pts = idx.map(i => pts[i]); vals = idx.map(i => vals[i]);
+      if (Math.abs(vals[n] - vals[0]) < 1e-7) break;
+      const c = new Array(n).fill(0);
+      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) c[j] += pts[i][j] / n;
+      const xr = c.map((cj, j) => cj + (cj - pts[n][j])), fr = f(xr);
+      if (fr < vals[0]) {
+        const xe = c.map((cj, j) => cj + 2 * (cj - pts[n][j])), fe = f(xe);
+        if (fe < fr) { pts[n] = xe; vals[n] = fe; } else { pts[n] = xr; vals[n] = fr; }
+      } else if (fr < vals[n - 1]) { pts[n] = xr; vals[n] = fr; }
+      else {
+        const xc = c.map((cj, j) => cj + 0.5 * (pts[n][j] - cj)), fc = f(xc);
+        if (fc < vals[n]) { pts[n] = xc; vals[n] = fc; }
+        else {
+          for (let i = 1; i <= n; i++) { pts[i] = pts[i].map((x, j) => pts[0][j] + 0.5 * (x - pts[0][j])); vals[i] = f(pts[i]); }
+        }
+      }
+    }
+    let best = 0;
+    for (let i = 1; i <= n; i++) if (vals[i] < vals[best]) best = i;
+    return { x: pts[best], f: vals[best] };
+  }
+
+  /* The virtual ward. Ages, weights and kidney function are typical of an
+     adult medicine ward; names are invented. */
+  const ROSTER = [
+    { bed: 3, name: 'Doreen Kaplan', age: 81, sex: 'F', wt: 58, crcl: 60, tau: 12, eta: [0.15, -0.1, 0.1], lagEta: 0.1,
+      indication: 'Hospital-acquired pneumonia', nextIn: 1.2, doses: 4, gain: 1.03, events: [{ type: 'aki', at: -11, factor: 0.5 }] },
+    { bed: 7, name: 'Tyler Brandt', age: 24, sex: 'M', wt: 92, crcl: 138, tau: 12, eta: [0.05, 0.1, -0.1], lagEta: -0.15,
+      indication: 'Infected fracture fixation, right tibia', nextIn: 1.7, doses: 5, gain: 0.98, events: [{ type: 'arc', at: -15, factor: 1.6 }] },
+    { bed: 11, name: 'Samuel Nakamura', age: 70, sex: 'M', wt: 79, crcl: 66, tau: 12, eta: [0.07, 0.05, 0], lagEta: 0.05,
+      indication: 'MRSA bloodstream infection', nextIn: 4.1, doses: 5, gain: 1.0, issue: { mode: 'weak', sinceH: 0.8 } },
+    { bed: 5, name: 'Arjun Mehta', age: 54, sex: 'M', wt: 88, crcl: 92, tau: 12, eta: [0.1, 0, 0.05], lagEta: 0,
+      indication: 'Vertebral osteomyelitis', nextIn: 6.3, doses: 6, gain: 0.96, patchAgeH: 69.4 },
+    { bed: 14, name: 'Nadia Haddad', age: 37, sex: 'F', wt: 61, crcl: 104, tau: 12, eta: [0.3, -0.15, 0], lagEta: -0.05,
+      indication: 'Suspected sepsis, cultures pending', nextIn: 9.6, doses: 1, gain: 1.04, patchAgeH: 1.9 },
+    { bed: 1, name: 'Harold Fenwick', age: 78, sex: 'M', wt: 72, crcl: 58, tau: 12, eta: [0.35, -0.05, 0.05], lagEta: 0,
+      indication: 'MRSA cellulitis, left leg', nextIn: 2.6, doses: 6, gain: 1.0 },
+    { bed: 9, name: 'Lucia Ferreira', age: 63, sex: 'F', wt: 66, crcl: 71, tau: 12, eta: [-0.35, 0.1, 0], lagEta: 0.1,
+      indication: 'Prosthetic knee infection', nextIn: 7.4, doses: 9, gain: 1.02 },
+    { bed: 12, name: 'Grace Whitford', age: 46, sex: 'F', wt: 101, crcl: 118, tau: 12, eta: [-0.1, 0.05, -0.05], lagEta: 0,
+      indication: 'Abscess with spreading cellulitis', nextIn: 5.1, doses: 4, gain: 0.99 },
+  ];
+
+  const NURSES = { day: 'P. Singh, RN', night: 'J. Okafor, RN' };
+  const PHARMACIST = 'R. Dubois, pharmacist';
+
+  class Ward {
+    /* originClockH: clock time at "now" (hours since local midnight, multiple of 0.05). */
+    constructor(originClockH, seed, roster) {
+      this.seed = seed || 20261031;
+      this.originStep = Math.round(originClockH / DT);
+      this.events = [];
+      this.patients = (roster || ROSTER).map((s, i) => this.makePatient(s, i));
+      this.k = Math.min(...this.patients.map(p => p.kStart)) - STEPS_H;
+      this.processedK = this.k - 1;
+      this.live = false;
+      this.listeners = [];
+      this.advanceTo(0);
+      this.live = true;
+    }
+
+    /* ---------- time ---------- */
+    get t() { return this.k * DT; }
+    clockSteps(k) { return this.originStep + k; }               // steps since midnight of day 0
+    isHourBoundary(k) { return ((this.clockSteps(k) % STEPS_H) + STEPS_H) % STEPS_H === 0; }
+    nurseAt(k) {
+      const h = (((this.clockSteps(k) % DAY_STEPS) + DAY_STEPS) % DAY_STEPS) / STEPS_H;
+      return h >= 7 && h < 19 ? NURSES.day : NURSES.night;
+    }
+
+    makePatient(s, i) {
+      const r = mulberry32(this.seed + s.bed * 7919);
+      const female = s.sex === 'F';
+      const clpop0 = popCl(s.crcl);
+      const tauK = s.tau * STEPS_H;
+      // next dose snapped to the next clock hour at least nextIn hours away
+      let kNext = Math.round(s.nextIn * STEPS_H);
+      while (!this.isHourBoundary(kNext)) kNext++;
+      const kStart = kNext - s.doses * tauK;
+      const patchAge = s.patchAgeH != null ? s.patchAgeH : (-kStart * DT) - 0.25;
+      let kPatch = -Math.round(patchAge * STEPS_H);
+      kPatch -= ((kPatch % READ_STEPS) + READ_STEPS) % READ_STEPS;
+      const p = {
+        id: 'bed-' + s.bed, bed: s.bed, name: s.name, age: s.age, sex: s.sex, female, wt: s.wt,
+        indication: s.indication, tau: s.tau, tauK, kStart, r, gainSpec: s.gain,
+        crcl0: s.crcl,
+        truth: {
+          cl0: clpop0 * Math.exp(s.eta[0]), v1: PK.V1 * s.wt / PK.WT_REF * Math.exp(s.eta[1]),
+          v2: PK.V2 * Math.exp(s.eta[2]), lag: EST_LAG * Math.exp(s.lagEta || 0),
+          events: (s.events || []).map(e => ({ ...e })), A1: 0, A2: 0, Cisf: 0,
+        },
+        patch: null,
+        doses: [], readings: [], est: [], fits: [], labs: [], log: [],
+        regimen: { dose: roundDose(TARGET.mid * clpop0 * s.tau / 24), nextK: kStart, loading: roundDose(25 * s.wt, DOSE.loadMax) },
+        fit: null, rec: null, snoozeK: -Infinity, decisionK: null,
+      };
+      p.patchSpec = { k: kPatch, fixedAge: s.patchAgeH != null, issue: s.issue ? { mode: s.issue.mode, k: -Math.round(s.issue.sinceH * STEPS_H) } : null };
+      // baseline creatinine, drawn on admission
+      this.addLab(p, kStart - 2 * STEPS_H, s.crcl, true);
+      return p;
+    }
+
+    newPatch(p, k, quiet) {
+      const r = p.r;
+      p.patch = {
+        k, id: 'MN-' + String(2400 + p.bed * 37 + Math.floor(r() * 30)).padStart(4, '0') + '-' + String(Math.floor(r() * 900 + 100)),
+        gain: (!this.live && p.gainSpec) ? p.gainSpec : Math.exp(0.08 * gauss(r)), drift: (!this.live && p.gainSpec) ? 0.01 * gauss(r) : 0.025 * gauss(r), noise: 0.09, add: 0.4, issue: null,
+      };
+      if (!quiet) this.log(p, k, 'patch', 'New patch applied (' + p.patch.id + ').', this.nurseAt(k));
+    }
+
+    /* ---------- truth ---------- */
+    mult(p, t) {
+      let m = 1;
+      for (const e of p.truth.events) {
+        if (e.type === 'aki') m *= 1 - (1 - e.factor) / (1 + Math.exp(-(t - e.at) / 1.5));
+        else if (e.type === 'arc') m *= 1 + (e.factor - 1) / (1 + Math.exp(-(t - e.at) / 2.5));
+      }
+      return Math.min(3, Math.max(0.15, m));
+    }
+    infusionRate(p, k) {
+      const d = p.doses[p.doses.length - 1];
+      return d && k >= d.k && k < d.k + d.infK ? d.amt / d.tinf : 0;
+    }
+    integrate(p, k) {
+      const T = p.truth, r = this.infusionRate(p, k);
+      const cl = T.cl0 * this.mult(p, (k + 0.5) * DT);
+      const k10 = cl / T.v1, k12 = PK.Q / T.v1, k21 = PK.Q / T.v2;
+      const f = (a1, a2) => [r - (k10 + k12) * a1 + k21 * a2, k12 * a1 - k21 * a2];
+      const d1 = f(T.A1, T.A2), d2 = f(T.A1 + DT / 2 * d1[0], T.A2 + DT / 2 * d1[1]);
+      const d3 = f(T.A1 + DT / 2 * d2[0], T.A2 + DT / 2 * d2[1]), d4 = f(T.A1 + DT * d3[0], T.A2 + DT * d3[1]);
+      const cp = T.A1 / T.v1;
+      T.A1 += DT / 6 * (d1[0] + 2 * d2[0] + 2 * d3[0] + d4[0]);
+      T.A2 += DT / 6 * (d1[1] + 2 * d2[1] + 2 * d3[1] + d4[1]);
+      const cpNew = T.A1 / T.v1, e = Math.exp(-DT / T.lag), lin = 1 - (1 - e) / (DT / T.lag);
+      T.Cisf = T.Cisf * e + cp * (1 - e) + (cpNew - cp) * lin;
+    }
+
+    /* ---------- hospital events ---------- */
+    addLab(p, k, crclTrue, baseline) {
+      const noise = baseline ? 1 : Math.exp(0.07 * gauss(p.r));
+      const crcl = Math.max(8, crclTrue * noise);
+      const scr = scrFromCrcl(p.age, p.wt, p.female, crcl);
+      p.labs.push({ k, kAvail: baseline ? k : k + STEPS_H, crcl, scrUmol: scr * MG_DL_TO_UMOL, logged: !!baseline });
+    }
+    latestLab(p, k) {
+      let best = p.labs[0];
+      for (const l of p.labs) if (l.kAvail <= k) best = l;
+      return best;
+    }
+    giveDose(p, k) {
+      const first = p.doses.length === 0;
+      if (!first && p.rec) {
+        if (!this.live) this.decide(p, k, 'approve', p.rec.dose, this.nurseAt(k - 6), null, true);
+        else this.log(p, k, 'warn', 'Dose given unchanged at ' + fmtMg(p.regimen.dose) + ': the recommendation was not reviewed in time.', null);
+      }
+      const amt = first ? p.regimen.loading : p.regimen.dose;
+      const iK = infSteps(amt);
+      p.doses.push({ k, t: k * DT, amt, infK: iK, tinf: iK * DT });
+      this.log(p, k, 'dose', (first ? 'Loading dose given: ' : 'Dose given: ') + fmtMg(amt) + ' IV over ' + fmtHours(iK * DT) + '.', this.nurseAt(k));
+      p.regimen.nextK = k + p.tauK;
+    }
+    takeReading(p, k) {
+      const P = p.patch, st = this.patchState(p, k);
+      let v = null;
+      if (st === 'good' || st === 'expiring' || st === 'weak') {
+        const weak = st === 'weak';
+        if (!(weak && p.r() < 0.4)) {
+          const g = P.gain * (1 + P.drift * (k - P.k) * DT / 24);
+          const noise = P.noise * (weak ? 3.5 : 1);
+          v = Math.max(0, g * p.truth.Cisf * (1 + noise * gauss(p.r)) + P.add * gauss(p.r));
+        }
+      }
+      p.readings.push({ k, v, st });
+    }
+    patchState(p, k) {
+      const P = p.patch;
+      if (!P || k < P.k) return 'none';
+      const age = (k - P.k) * DT;
+      if (age > PATCH_LIFE_H) return 'expired';
+      if (k - P.k < PATCH_WARMUP_STEPS) return 'warmup';
+      if (P.issue && k >= P.issue.k) return P.issue.mode;
+      if (PATCH_LIFE_H - age < 6) return 'expiring';
+      return 'good';
+    }
+
+    /* ---------- the dosing software ---------- */
+    software(p, k, doFit) {
+      const lab = this.latestLab(p, k);
+      const clpop = popCl(lab.crcl), v1pop = PK.V1 * p.wt / PK.WT_REF;
+      if (doFit || !p.fit) {
+        const obs = [];
+        const stride = this.live ? 1 : 2;
+        let n = 0;
+        for (let i = p.readings.length - 1; i >= 0; i--) {
+          const o = p.readings[i];
+          if (o.k <= k - DAY_STEPS) break;
+          if (o.v === null) continue;
+          if (n++ % stride === 0) obs.push(o);
+        }
+        const nObs = p.readings.filter(o => o.k > k - DAY_STEPS && o.k <= k && o.v !== null).length;
+        const recent = p.readings.filter(o => o.k > k - 4 * STEPS_H && o.k <= k && o.v !== null).length;
+        if ((nObs < 8 || recent < 3) && p.fit && !p.fit.learning) {
+          // no fresh readings: keep the last estimate, with uncertainty growing over time
+          const last = p.fit.lastGoodK != null ? p.fit.lastGoodK : p.fit.k;
+          const hrs = (k - last) * DT;
+          p.fit = { ...p.fit, k, n: nObs, stale: true, lastGoodK: last, sd: Math.min(OMEGA_CL, Math.sqrt(p.fit.baseSd ** 2 + (0.025 * hrs) ** 2)) };
+        } else if (nObs < 8 || p.doses.length === 0) {
+          p.fit = { k, cl: clpop, clA: clpop, v1: v1pop, tc: p.doses.length ? p.doses[0].t : k * DT, sd: OMEGA_CL, e: [0, 0, 0], n: nObs, learning: true, clpop };
+        } else {
+          const ts = obs.map(o => o.k * DT), ys = obs.map(o => o.v), doses = p.doses;
+          const tc = Math.max(doses[0].t, k * DT - CHANGE_WINDOW_H);
+          // e = [log CL before tc vs population, log V1 vs population, log change in CL after tc]
+          const obj = e => {
+            const clA = clpop * Math.exp(e[0]), mdl = makeModel(clA, clA * Math.exp(e[2]), v1pop * Math.exp(e[1]), PK.V2, tc, doses, EST_LAG);
+            let s = (e[0] / OMEGA_CL) ** 2 + (e[1] / OMEGA_V1) ** 2 + (e[2] / DELTA_SD) ** 2;
+            for (let i = 0; i < ts.length; i++) {
+              const pr = mdl.isf(ts[i]), sd = Math.sqrt((EST_PROP * pr) ** 2 + EST_ADD ** 2);
+              s += ((ys[i] - pr) / sd) ** 2 + 2 * Math.log(sd);
+            }
+            return s;
+          };
+          const x0 = p.fit && !p.fit.learning && p.fit.e ? [Math.log(p.fit.cl / clpop), p.fit.e[1], 0] : [0, 0, 0];
+          const res = nelderMead(obj, x0, 0.15, 240), e = res.x, h = 0.03;
+          // Laplace approximation for log CL now (= e0 + e2), plus the patch calibration uncertainty
+          const f = (d0, d2) => obj([e[0] + d0, e[1], e[2] + d2]);
+          const H00 = (f(h, 0) - 2 * res.f + f(-h, 0)) / (h * h), H22 = (f(0, h) - 2 * res.f + f(0, -h)) / (h * h);
+          const H02 = (f(h, h) - f(h, -h) - f(-h, h) + f(-h, -h)) / (4 * h * h), det = H00 * H22 - H02 * H02;
+          const varNow = det > 0 && H00 > 0 ? 2 * (H22 + H00 - 2 * H02) / det : OMEGA_CL ** 2;
+          const sd = Math.min(OMEGA_CL, Math.sqrt(Math.max(0, varNow) + CAL_SD * CAL_SD));
+          const clA = clpop * Math.exp(e[0]);
+          p.fit = { k, cl: clA * Math.exp(e[2]), clA, v1: v1pop * Math.exp(e[1]), tc, sd, baseSd: sd, e, n: nObs, learning: false, stale: false, lastGoodK: k, clpop };
+        }
+        p.fits.push({ k, cl: p.fit.cl, sd: p.fit.sd, learning: p.fit.learning });
+        this.checkRecommendation(p, k);
+      }
+      p.est.push({ k, c: this.model(p, p.doses).plasma(k * DT) });
+    }
+    model(p, doses) { const F = p.fit; return makeModel(F.clA || F.cl, F.cl, F.v1, PK.V2, F.tc != null ? F.tc : 0, doses, EST_LAG); }
+    ssAuc(p, dose) { return dose * 24 / (p.tau * p.fit.cl); }
+    checkRecommendation(p, k) {
+      const F = p.fit;
+      if (F.learning || F.sd > 0.25 || p.doses.length < 2) return;
+      // no new suggestions while the patch signal can't be trusted
+      const st = this.patchState(p, k), signalOk = st === 'good' || st === 'expiring';
+      const cur = p.regimen.dose, ss = this.ssAuc(p, cur);
+      const exact = TARGET.mid * F.cl * p.tau / 24, recDose = roundDose(exact);
+      const out = ss > TARGET.hi || ss < TARGET.lo;
+      const extreme = ss > 700 || ss < 300;
+      if (!out) p.outStreak = 0;
+      if (p.rec) {
+        // hysteresis keeps a pending recommendation from flickering with every reading
+        if (!signalOk) {
+          // hold the pending suggestion as it is until readings are reliable again
+        } else if (ss > TARGET.lo + 20 && ss < TARGET.hi - 20) {
+          this.log(p, k, 'rec', 'Recommendation withdrawn: exposure is back in the target range on ' + fmtMg(cur) + '.', null);
+          p.rec = null;
+        } else if (recDose !== p.rec.dose && recDose !== cur && Math.abs(exact - p.rec.dose) > 0.65 * DOSE.step) {
+          this.log(p, k, 'rec', 'Recommendation updated: ' + fmtMg(p.rec.dose) + ' to ' + fmtMg(recDose) + '.', null);
+          p.rec.dose = recDose; p.rec.updatedK = k;
+        }
+      } else if (out && signalOk && recDose !== cur && (k >= p.snoozeK || extreme) && (p.outStreak = (p.outStreak || 0) + 1) >= 2) {
+        p.rec = { dose: recDose, from: cur, k, updatedK: k };
+        this.log(p, k, 'rec', 'Recommendation: ' + (recDose < cur ? 'lower' : 'raise') + ' to ' + fmtMg(recDose) + ' every ' + p.tau + ' h (now ' + fmtMg(cur) + ').', null);
+      }
+    }
+
+    /* ---------- clinician actions ---------- */
+    decide(p, k, kind, dose, by, reason, historic) {
+      const rec = p.rec;
+      if (kind === 'approve') {
+        const changed = rec && dose !== rec.dose;
+        p.regimen.dose = dose;
+        this.log(p, k, changed ? 'change' : 'approve',
+          (changed ? 'Dose changed to ' + fmtMg(dose) + ' (recommended ' + fmtMg(rec.dose) + ')' : 'Approved ' + fmtMg(dose) + ' every ' + p.tau + ' h') +
+          (reason ? '. Reason: ' + reason : '') + '. Sent to pharmacy.', by);
+        this.schedule(k + 7, () => this.log(p, k + 7, 'pharmacy', 'Verified by pharmacy.', PHARMACIST));
+        p.snoozeK = k + 4 * STEPS_H;
+      } else if (kind === 'decline') {
+        this.log(p, k, 'decline', 'Declined recommendation of ' + fmtMg(rec.dose) + (reason ? '. Reason: ' + reason : '') + '. Staying on ' + fmtMg(p.regimen.dose) + '.', by);
+        p.snoozeK = k + 6 * STEPS_H;
+      }
+      p.rec = null;
+      p.decisionK = k;
+      if (!historic) this.emit();
+    }
+    approve(id, dose, by, reason) { const p = this.get(id); this.decide(p, this.k, 'approve', dose, by, reason); }
+    decline(id, by, reason) { const p = this.get(id); if (p.rec) this.decide(p, this.k, 'decline', null, by, reason); }
+    replacePatch(id, by) {
+      const p = this.get(id);
+      this.newPatch(p, this.k + (READ_STEPS - (this.k % READ_STEPS)) % READ_STEPS, true);
+      this.log(p, this.k, 'patch', 'New patch applied (' + p.patch.id + '). Readings resume after a 1 h warm-up.', by);
+      this.emit();
+    }
+    simulateKidneyInjury(id) { const p = this.get(id); p.truth.events.push({ type: 'aki', at: this.t + 2.5, factor: 0.45 }); }
+    simulateFastClearance(id) { const p = this.get(id); p.truth.events.push({ type: 'arc', at: this.t + 2.5, factor: 1.6 }); }
+    simulateSignal(id, mode) {
+      const p = this.get(id);
+      if (!p.patch) return;
+      p.patch.issue = mode ? { mode, k: this.k } : null;
+      if (mode) this.log(p, this.k, 'sensor', mode === 'lost' ? 'Patch signal lost.' : 'Patch signal weak.', null);
+      this.emit();
+    }
+
+    /* ---------- loop ---------- */
+    schedule(k, fn) { this.events.push({ k, fn }); }
+    log(p, k, type, text, by) { p.log.push({ k, type, text, by }); }
+    get(id) { return this.patients.find(p => p.id === id); }
+    onChange(fn) { this.listeners.push(fn); }
+    emit() { for (const fn of this.listeners) fn(); }
+
+    process(k) {
+      for (const p of this.patients) {
+        if (!p.patch && k === p.patchSpec.k) {
+          this.newPatch(p, k, false);
+          if (p.patchSpec.issue) p.patch.issue = { mode: p.patchSpec.issue.mode, k: p.patchSpec.issue.k };
+        }
+        // earlier shifts changed patches routinely at about 60 h of wear
+        if (!this.live && p.patch && !p.patchSpec.fixedAge && k % READ_STEPS === 0 && (k - p.patch.k) * DT >= 60) {
+          const keepIssue = p.patch.issue;
+          this.newPatch(p, k, false);
+          p.patch.issue = keepIssue;
+        }
+        if (k === p.regimen.nextK) giveDoseWrap(this, p, k);
+        if (k >= p.kStart && ((this.clockSteps(k) % DAY_STEPS) + DAY_STEPS) % DAY_STEPS === 6 * STEPS_H) {
+          const m = this.mult(p, (k - 12 * STEPS_H) * DT);
+          this.addLab(p, k, p.crcl0 * Math.pow(m, 1 / PK.CL_EXP));
+        }
+        for (const l of p.labs) if (!l.logged && l.kAvail === k) {
+          l.logged = true;
+          this.log(p, k, 'lab', 'Morning creatinine: ' + Math.round(l.scrUmol) + ' µmol/L.', null);
+        }
+        if (p.patch && p.patch.issue && p.patch.issue.k === k && k < 0) {
+          this.log(p, k, 'sensor', p.patch.issue.mode === 'lost' ? 'Patch signal lost.' : 'Patch signal weak.', null);
+        }
+        if (k % READ_STEPS === 0 && k >= p.kStart - STEPS_H) {
+          if (p.patch) this.takeReading(p, k);
+          if (k >= p.kStart) this.software(p, k, this.live || k % (2 * STEPS_H) === 0 || k === p.kStart);
+        }
+      }
+      const due = this.events.filter(e => e.k === k);
+      if (due.length) { this.events = this.events.filter(e => e.k !== k); due.forEach(e => e.fn()); }
+      this.processedK = k;
+    }
+    advanceTo(kTarget) {
+      let changed = false;
+      while (this.k < kTarget) {
+        if (this.processedK < this.k) { this.process(this.k); changed = true; }
+        for (const p of this.patients) if (this.k >= p.kStart) this.integrate(p, this.k);
+        this.k++;
+      }
+      if (this.processedK < this.k) { this.process(this.k); changed = true; }
+      if (changed && this.live) this.emit();
+    }
+
+    /* ---------- what the screens need ---------- */
+    aucWindow(p, k0, k1) {
+      const pts = p.est;
+      let s = 0, prev = null;
+      for (const o of pts) {
+        if (o.k < k0) { prev = o; continue; }
+        if (o.k > k1) break;
+        if (prev) {
+          const a = prev.k < k0 ? k0 : prev.k;
+          const ca = prev.k < k0 ? prev.c + (o.c - prev.c) * (k0 - prev.k) / (o.k - prev.k) : prev.c;
+          s += (ca + o.c) / 2 * (o.k - a) * DT;
+        }
+        prev = o;
+      }
+      return s;
+    }
+    forecast(p, dose, hours) {
+      const doses = p.doses.slice();
+      for (let kk = p.regimen.nextK; kk <= this.k + hours * STEPS_H; kk += p.tauK) {
+        const iK = infSteps(dose);
+        doses.push({ k: kk, t: kk * DT, amt: dose, infK: iK, tinf: iK * DT });
+      }
+      const mdl = this.model(p, doses), out = [];
+      for (let kk = this.k; kk <= this.k + hours * STEPS_H; kk += READ_STEPS) out.push({ k: kk, c: mdl.plasma(kk * DT) });
+      return out;
+    }
+    metrics(p) {
+      const k = this.k, F = p.fit, cur = p.regimen.dose;
+      const ss = this.ssAuc(p, cur), z = 1.645 * F.sd;
+      const elapsed = k - p.kStart;
+      const auc24 = elapsed >= DAY_STEPS ? this.aucWindow(p, k - DAY_STEPS, k) : null;
+      const auc24prev = elapsed >= DAY_STEPS + 6 * STEPS_H ? this.aucWindow(p, k - DAY_STEPS - 6 * STEPS_H, k - 6 * STEPS_H) : null;
+      let trend = 'steady';
+      if (auc24 != null && auc24prev != null) {
+        const d = (auc24 - auc24prev) / auc24prev;
+        trend = d > 0.06 ? 'rising' : d < -0.06 ? 'falling' : 'steady';
+      }
+      const fitPast = [...p.fits].reverse().find(f => f.k <= k - DAY_STEPS && !f.learning);
+      const clChange = fitPast && !F.learning ? F.cl / fitPast.cl - 1 : null;
+      const st = this.patchState(p, k);
+      const lastHour = p.readings.filter(o => o.k > k - STEPS_H && o.k <= k);
+      const lastReading = [...p.readings].reverse().find(o => o.v !== null);
+      const conf = F.learning ? 'Not yet' : F.sd < 0.12 ? 'High' : F.sd < 0.2 ? 'Moderate' : 'Low';
+      const labs = p.labs.filter(l => l.kAvail <= k);
+      let status;
+      if (p.rec) status = 'review';
+      else if (F.learning) status = 'estimating';
+      else if (ss > TARGET.hi || ss < TARGET.lo || st === 'lost' || st === 'expired') status = 'watch';
+      else if (auc24 != null && (auc24 > TARGET.hi + 25 || auc24 < TARGET.lo - 25)) status = 'settling';
+      else status = 'ok';
+      return {
+        status, ss, ssLo: ss * Math.exp(-z), ssHi: ss * Math.exp(z), auc24, trend,
+        level: p.est.length ? p.est[p.est.length - 1].c : 0,
+        rec: p.rec ? { ...p.rec, ss: this.ssAuc(p, p.rec.dose), ssLo: this.ssAuc(p, p.rec.dose) * Math.exp(-z), ssHi: this.ssAuc(p, p.rec.dose) * Math.exp(z) } : null,
+        clChange, conf, sensor: st, patchAgeH: p.patch ? (k - p.patch.k) * DT : null,
+        readingsHour: lastHour.filter(o => o.v !== null).length, readingSlots: lastHour.length,
+        lastReading, nObs: F.n, labs, nextK: p.regimen.nextK, day: Math.floor(elapsed / DAY_STEPS) + 1,
+      };
+    }
+    dayExposures(p) {
+      const out = [];
+      for (let d = 0; p.kStart + (d + 1) * DAY_STEPS <= this.k; d++) {
+        out.push({ label: 'Day ' + (d + 1), auc: this.aucWindow(p, p.kStart + d * DAY_STEPS, p.kStart + (d + 1) * DAY_STEPS) });
+      }
+      if (this.k - p.kStart >= DAY_STEPS) out.push({ label: 'Last 24 h', auc: this.aucWindow(p, this.k - DAY_STEPS, this.k), rolling: true });
+      return out;
+    }
+    exposureFor(p, dose) { return this.ssAuc(p, dose); }
+  }
+  function giveDoseWrap(w, p, k) { w.giveDose(p, k); }
+  function fmtMg(x) { return x.toLocaleString('en-CA') + ' mg'; }
+  function fmtHours(h) { const m = Math.round(h * 60); return m % 60 === 0 ? (m / 60) + ' h' : (m >= 60 ? Math.floor(m / 60) + ' h ' : '') + (m % 60) + ' min'; }
+
+  root.DoseEngine = { ROSTER, Ward, makeModel, DT, STEPS_H, READ_STEPS, DAY_STEPS, TARGET, DOSE, PATCH_LIFE_H, EST_LAG, PK, roundDose, rates, predictAt, fmtMg };
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+(function () {
+  'use strict';
+  const E = window.DoseEngine, DT = E.DT, SH = E.STEPS_H;
+  const NURSE = { name: 'Maya Chen, RN', sign: 'M. Chen, RN' };
+  const REASONS = ["Prescriber's instruction", "Pharmacist's instruction", 'Waiting for a blood level to confirm', 'Concern about the patch reading', 'Clinical judgement'];
+  const $ = (s, el) => (el || document).querySelector(s);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* storage unavailable: settings last for this visit */ } },
+  };
+  const pad = n => String(n).padStart(2, '0');
+  const fmtInt = x => Math.round(x).toLocaleString('en-CA');
+  const fmtMg = x => x.toLocaleString('en-CA') + ' mg';
+  const fmt1 = x => (Math.round(x * 10) / 10).toFixed(1);
+  const infK = amt => Math.max(SH, Math.round(amt / E.DOSE.rate * SH));
+
+  const ICON = {
+    alert: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.6v4.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="11.2" r=".95" fill="currentColor"/></svg>',
+    warn: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2 14.4 13.4H1.6Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M8 6.4v3.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11.4" r=".85" fill="currentColor"/></svg>',
+    check: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="m5.2 8.2 1.9 1.9 3.8-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    clock: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.8V8l2.2 1.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    wave: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.6 9.6c1.6 0 1.6-3.2 3.2-3.2s1.6 3.2 3.2 3.2 1.6-3.2 3.2-3.2 1.6 3.2 3.2 3.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    patch: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.2" y="2.2" width="11.6" height="11.6" rx="3.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="6" cy="6" r=".95" fill="currentColor"/><circle cx="10" cy="6" r=".95" fill="currentColor"/><circle cx="6" cy="10" r=".95" fill="currentColor"/><circle cx="10" cy="10" r=".95" fill="currentColor"/></svg>',
+    up: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3.5M4 7.5l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    down: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v9.5M4 8.5l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    flat: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9.5M9 4.5 12.5 8 9 11.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    back: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 4.5 7 10l5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    close: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+    sun: '<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.3 4.3l1.4 1.4M14.3 14.3l1.4 1.4M4.3 15.7l1.4-1.4M14.3 5.7l1.4-1.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+    moon: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M15.8 12.6A6.6 6.6 0 0 1 7.4 4.2a6.6 6.6 0 1 0 8.4 8.4Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
+    auto: '<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="6.8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 3.2a6.8 6.8 0 0 1 0 13.6Z" fill="currentColor"/></svg>',
+  };
+  const STATUS = {
+    review: { label: 'Review dose', cls: 'crit', icon: ICON.alert },
+    watch: { label: 'Watch', cls: 'warn', icon: ICON.warn },
+    settling: { label: 'Settling', cls: 'info', icon: ICON.wave },
+    estimating: { label: 'Estimating', cls: 'info', icon: ICON.clock },
+    ok: { label: 'On target', cls: 'ok', icon: ICON.check },
+  };
+  const SENSOR = {
+    good: null,
+    expiring: { label: 'Patch ends soon', cls: 'warn' },
+    weak: { label: 'Weak signal', cls: 'warn' },
+    lost: { label: 'No signal', cls: 'crit' },
+    expired: { label: 'Replace patch', cls: 'crit' },
+    warmup: { label: 'Patch warming up', cls: 'info' },
+    none: { label: 'No patch', cls: 'crit' },
+  };
+  const chip = (S, icon) => `<span class="chip ${S.cls}">${icon || S.icon}${S.label}</span>`;
+
+  /* ---------- state ---------- */
+  const blankDecision = () => ({ pid: null, mode: null, dose: null, reason: '', checked: false, recKey: null });
+  const UI = {
+    filter: 'all',
+    detail: store.get('dc-detail', 'simple') === 'detailed',
+    theme: store.get('dc-theme', 'auto'),
+    range: 24, drawer: null, opener: null,
+    decision: blankDecision(), patchConfirm: null, acked: new Set(), showAllLog: false, hover: null, demoPid: 'bed-1',
+  };
+  const hostTheme = document.documentElement.getAttribute('data-theme');
+  const main = $('#main');
+  let clock, ward, sim = null, dirty = true, lastRender = 0, lastMinute = -1, forceDecision = true;
+  const mcache = new Map();
+  const M = p => { let m = mcache.get(p.id); if (!m) { m = ward.metrics(p); mcache.set(p.id, m); } return m; };
+
+  /* ---------- clock (wall-clock arithmetic, so daylight-saving changes don't shift dose times) ---------- */
+  function initClock() {
+    const real = new Date();
+    const originClockH = Math.floor((real.getHours() * 60 + real.getMinutes()) / 3) * 3 / 60;
+    clock = {
+      originClockH,
+      day0: new Date(real.getFullYear(), real.getMonth(), real.getDate()),
+      vtStart: (real.getHours() * 3600 + real.getMinutes() * 60 + real.getSeconds()) / 3600 - originClockH,
+    };
+  }
+  function wallAt(h) {
+    const tm = Math.floor((clock.originClockH + h) * 60 + 1e-6);
+    const day = Math.floor(tm / 1440), m = tm - day * 1440;
+    return { day, hh: Math.floor(m / 60), mm: m % 60 };
+  }
+  const wallK = k => wallAt(k * DT);
+  const hhmm = w => pad(w.hh) + ':' + pad(w.mm);
+  const dayDate = day => new Date(clock.day0.getFullYear(), clock.day0.getMonth(), clock.day0.getDate() + day);
+  function dayWord(day) {
+    const d = day - wallAt(sim.vt).day;
+    if (d === 0) return '';
+    if (d === -1) return 'yesterday';
+    if (d === 1) return 'tomorrow';
+    return dayDate(day).toLocaleDateString('en-CA', { weekday: 'long' });
+  }
+  const timeOnly = k => hhmm(wallK(k));
+  const timeK = k => { const w = wallK(k), d = dayWord(w.day); return hhmm(w) + (d ? ' ' + d : ''); };
+  const timeHtml = k => { const w = wallK(k), d = dayWord(w.day); return `<time class="tm">${hhmm(w)}${d ? `<small>${d}</small>` : ''}</time>`; };
+  function fmtDur(h) {
+    if (h <= 0.01) return 'under a minute';
+    const m = Math.round(h * 60);
+    if (m < 60) return m + ' min';
+    return Math.floor(m / 60) + ' h' + (m % 60 ? ' ' + pad(m % 60) + ' min' : '');
+  }
+  const untilK = k => fmtDur(k * DT - sim.vt);
+
+  function boot() {
+    initClock();
+    ward = new E.Ward(clock.originClockH);
+    ward.onChange(() => { dirty = true; });
+    sim = { vt: clock.vtStart, speed: sim ? sim.speed : 1, paused: false, last: performance.now() };
+    UI.decision = blankDecision(); UI.patchConfirm = null; UI.acked = new Set(); UI.hover = null;
+    main.dataset.view = ''; dirty = true; forceDecision = true;
+  }
+
+  /* ---------- helpers ---------- */
+  function niceScale(vmax, steps) {
+    const raw = vmax / steps, mag = Math.pow(10, Math.floor(Math.log10(raw))), n = raw / mag;
+    const s = n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10;
+    return { max: s * mag * Math.ceil(vmax / (s * mag)), step: s * mag };
+  }
+  const nearest = (arr, k, key) => { let best = null, bd = Infinity; for (const o of arr) { const d = Math.abs(o.k - k); if (d < bd) { bd = d; best = o; } } return best; };
+  function withFocus(fn) {
+    const a = document.activeElement, key = a && a.dataset ? a.dataset.key : null;
+    fn();
+    if (key) { const el = document.querySelector('[data-key="' + key + '"]'); if (el && el !== document.activeElement) el.focus({ preventScroll: true }); }
+  }
+  let toastTimer = null;
+  function toast(msg) {
+    const t = $('#toast');
+    t.textContent = msg; t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.hidden = true; }, 4600);
+  }
+  const route = () => { const id = decodeURIComponent(location.hash.slice(1)); return ward.get(id) ? id : null; };
+  function patchEndsK(p) { return p.patch.k + E.PATCH_LIFE_H * SH; }
+  function readyIn(p, m) {
+    let mins = 0;
+    if (p.patch && ward.k - p.patch.k < 20) mins += (20 - (ward.k - p.patch.k)) * 3;
+    mins += Math.max(0, 8 - m.nObs) * 15;
+    return fmtDur(Math.max(15, mins) / 60);
+  }
+
+  /* ---------- alerts ---------- */
+  function computeAlerts() {
+    const out = [];
+    for (const p of ward.patients) {
+      const m = M(p), P = p.patch;
+      if (p.rec) out.push({ key: `${p.id}:rec:${p.rec.k}:${p.rec.dose}`, sev: 2, p, k: p.rec.updatedK, title: 'Dose review needed', text: `${p.rec.dose < p.regimen.dose ? 'Lower' : 'Raise'} the dose to ${fmtMg(p.rec.dose)}. Review before the ${timeOnly(p.regimen.nextK)} dose.` });
+      if (m.sensor === 'lost') out.push({ key: `${p.id}:lost:${P.issue.k}`, sev: 2, p, k: P.issue.k, title: 'Patch signal lost', text: 'Check the patch and the reader. Dose checks use the last estimate until readings return.' });
+      if (m.sensor === 'weak') out.push({ key: `${p.id}:weak:${P.issue.k}`, sev: 1, p, k: P.issue.k, title: 'Patch signal weak', text: 'Readings are noisy or missing, so dose suggestions are paused. Check that the patch is firmly attached.' });
+      if (m.sensor === 'expired') out.push({ key: `${p.id}:expired:${P.k}`, sev: 2, p, k: patchEndsK(p), title: 'Patch expired', text: 'Apply a new patch to keep monitoring this patient.' });
+      if (m.sensor === 'expiring') out.push({ key: `${p.id}:expiring:${P.k}`, sev: 1, p, k: ward.k, title: 'Patch ends soon', text: `The patch reaches 72 hours at ${timeK(patchEndsK(p))}. Plan a replacement.` });
+      if (!p.rec && m.status === 'watch' && (m.ss > E.TARGET.hi || m.ss < E.TARGET.lo)) out.push({ key: `${p.id}:out:${p.decisionK}`, sev: 1, p, k: ward.k, title: 'Exposure outside target', text: `Expected ${fmtInt(m.ss)} mg·h/L on the current dose, ${m.ss > E.TARGET.hi ? 'above' : 'below'} the 400–600 target.` });
+    }
+    return out.sort((a, b) => b.sev - a.sev || b.k - a.k);
+  }
+
+  /* ---------- top bar ---------- */
+  function updateClock() {
+    const w = wallAt(sim.vt);
+    $('#clock-time').textContent = hhmm(w);
+    $('#clock-day').textContent = dayDate(w.day).toLocaleDateString('en-CA', { weekday: 'short', month: 'short', day: 'numeric' });
+    const sp = $('#clock-speed'), label = sim.paused ? 'Demo time paused' : sim.speed !== 1 ? 'Demo time ×' + sim.speed.toLocaleString('en-CA') : '';
+    sp.hidden = !label; sp.textContent = label;
+  }
+  function renderBar() {
+    const n = ward.patients.filter(p => p.rec).length, pill = $('#review-pill');
+    pill.hidden = n === 0;
+    pill.innerHTML = `${ICON.alert}<span>${n}<span class="pill-word"> to review</span></span>`;
+    pill.setAttribute('aria-label', `${n} patient${n === 1 ? '' : 's'} to review`);
+    const a = computeAlerts().filter(x => !UI.acked.has(x.key)).length, badge = $('#alert-count');
+    badge.hidden = a === 0; badge.textContent = a;
+    $('#alert-btn').setAttribute('aria-label', a ? `Alerts, ${a} open` : 'Alerts, none open');
+    document.querySelectorAll('[data-action="view"]').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.v === 'detailed') === UI.detail)));
+  }
+  function applyTheme() {
+    const r = document.documentElement;
+    if (UI.theme === 'auto') { if (hostTheme) r.setAttribute('data-theme', hostTheme); else r.removeAttribute('data-theme'); }
+    else r.setAttribute('data-theme', UI.theme);
+    const b = $('#theme-btn'), name = UI.theme === 'auto' ? 'automatic' : UI.theme;
+    b.innerHTML = UI.theme === 'dark' ? ICON.moon : UI.theme === 'light' ? ICON.sun : ICON.auto;
+    b.setAttribute('aria-label', `Theme: ${name}. Change theme`);
+    b.title = `Theme: ${name}`;
+  }
+
+  /* ---------- ward board ---------- */
+  function gauge(m) {
+    const pos = v => Math.max(0, Math.min(100, (v - 200) / 600 * 100));
+    const label = (m.auc24 != null ? `Last 24 hours ${fmtInt(m.auc24)}, ` : '') + `expected ${fmtInt(m.ss)} on the current dose. Target 400 to 600.`;
+    return `<div class="gauge" role="img" aria-label="${label}"><span class="g-band" style="left:${pos(400)}%;width:${pos(600) - pos(400)}%"></span><span class="g-ring" style="left:${pos(m.ss)}%"></span>${m.auc24 != null ? `<span class="g-dot" style="left:${pos(m.auc24)}%"></span>` : ''}</div>
+      <div class="g-scale" aria-hidden="true"><span style="left:${pos(400)}%">400</span><span style="left:${pos(600)}%">600</span></div>`;
+  }
+  function trendHtml(m) {
+    if (m.auc24 == null) return '';
+    const t = { rising: [ICON.up, 'Rising'], falling: [ICON.down, 'Falling'], steady: [ICON.flat, 'Steady'] }[m.trend];
+    return `<span class="trend">${t[0]}${t[1]}</span>`;
+  }
+  function patchShort(p, m) {
+    if (m.sensor === 'good') return `Patch ${Math.floor(m.patchAgeH)} h`;
+    if (m.sensor === 'expiring') return `Patch ends ${timeOnly(patchEndsK(p))}`;
+    return SENSOR[m.sensor].label;
+  }
+  function card(p, m) {
+    const S = STATUS[m.status], sen = SENSOR[m.sensor];
+    let body;
+    if (m.status === 'estimating') {
+      body = `<div class="est-note">${ICON.clock}<span>Building this patient's first estimate. Ready in about ${readyIn(p, m)}.</span></div>`;
+    } else {
+      body = `<div><div class="lbl">${m.auc24 != null ? 'Exposure, last 24 h' : 'Expected exposure'}</div>
+        <div class="exp-v"><span class="num">${fmtInt(m.auc24 != null ? m.auc24 : m.ss)}</span><span class="unit">mg·h/L</span>${trendHtml(m)}</div>
+        ${gauge(m)}
+        ${m.auc24 != null ? `<div class="exp-f"><span class="k-ring" aria-hidden="true"></span>Expected on current dose: <b class="mono">${fmtInt(m.ss)}</b></div>` : ''}</div>`;
+    }
+    const det = UI.detail && m.status !== 'estimating' ? `<div class="det mono"><span>Level ${fmt1(m.level)} mg/L</span><span>Clearance ${p.fit.cl.toFixed(2)} L/h${m.clChange != null ? ` (${m.clChange > 0 ? '+' : '−'}${Math.round(Math.abs(m.clChange) * 100)}% / 24 h)` : ''}</span><span>Confidence ${m.conf.toLowerCase()}</span></div>` : '';
+    const rec = p.rec ? `<div class="rec-line">${ICON.alert}<span><b>${p.rec.dose < p.regimen.dose ? 'Lower' : 'Raise'} to ${fmtMg(p.rec.dose)}</b> · review before ${timeOnly(p.regimen.nextK)}</span></div>` : '';
+    return `<a class="card s-${m.status}" href="#${p.id}" data-key="card-${p.id}">
+      <div class="card-top"><span class="bed">Bed ${p.bed}</span><span class="chips">${chip(S)}</span></div>
+      <div class="who"><b>${esc(p.name)}</b><span>${p.age} ${p.sex} · ${p.wt} kg · ${esc(p.indication)}</span></div>
+      ${body}${rec}
+      <div><div class="spark-cap"><span>Blood level, last 12 h</span><span class="mono">${fmt1(m.level)} mg/L</span></div><div class="spark" data-spark="${p.id}" aria-hidden="true"></div></div>
+      ${det}
+      <div class="foot"><span>Next dose <b class="mono">${timeOnly(m.nextK)}</b> · ${fmtMg(p.regimen.dose)}</span><span class="pst ${sen ? sen.cls : ''}">${ICON.patch}${patchShort(p, m)}</span></div>
+    </a>`;
+  }
+  function renderWard() {
+    if (main.dataset.view !== 'ward') { main.dataset.view = 'ward'; UI.hover = null; }
+    const list = ward.patients.map(p => ({ p, m: M(p) }));
+    const isWatch = m => m.status === 'watch' || m.status === 'settling';
+    const isPatch = m => m.sensor !== 'good';
+    const counts = { all: list.length, review: list.filter(x => x.m.status === 'review').length, watch: list.filter(x => isWatch(x.m)).length, patch: list.filter(x => isPatch(x.m)).length };
+    const pass = { all: () => true, review: x => x.m.status === 'review', watch: x => isWatch(x.m), patch: x => isPatch(x.m) }[UI.filter];
+    const order = { review: 0, watch: 1, settling: 2, estimating: 3, ok: 4 };
+    const shown = list.filter(pass).sort((a, b) => order[a.m.status] - order[b.m.status] || (a.m.status === 'review' ? a.m.nextK - b.m.nextK : a.p.bed - b.p.bed));
+    const F = [['all', 'All'], ['review', 'Needs review'], ['watch', 'Watch'], ['patch', 'Patch issues']];
+    const emptyMsg = { review: 'No patients need a dose review right now.', watch: 'No patients are on watch.', patch: 'All patches are working.', all: 'No patients.' }[UI.filter];
+    withFocus(() => {
+      main.innerHTML = `
+        <div class="ward-head">
+          <div><h1>Patients on vancomycin</h1><p class="sub">Ward 4B · ${list.length} patients · Target daily exposure 400–600 mg·h/L</p></div>
+          <div class="ward-tools">
+            <div class="seg" role="group" aria-label="Show patients">${F.map(([v, l]) => `<button data-action="filter" data-v="${v}" data-key="f-${v}" aria-pressed="${UI.filter === v}">${l}<span class="ct">${counts[v]}</span></button>`).join('')}</div>
+            <button class="btn small" data-action="open-handover" data-key="handover-btn">Handover summary</button>
+          </div>
+        </div>
+        ${shown.length ? `<div class="grid">${shown.map(x => card(x.p, x.m)).join('')}</div>` : `<p class="empty">${emptyMsg}</p>`}
+        <p class="foot-note">Exposure is the estimated area under the blood-level curve over 24 hours (AUC), the measure the 2020 vancomycin guideline targets. On each gauge, the dot <span class="k-dot" aria-hidden="true"></span> is the last 24 hours and the ring <span class="k-ring" aria-hidden="true"></span> is where exposure is expected to settle on the current dose.</p>`;
+    });
+    drawSparks();
+  }
+  function drawSparks() {
+    main.querySelectorAll('[data-spark]').forEach(el => {
+      const p = ward.get(el.dataset.spark), W = Math.max(120, Math.round(el.clientWidth)), H = 36;
+      const k0 = ward.k - 12 * SH, pts = p.est.filter(o => o.k >= k0);
+      if (pts.length < 2) { el.innerHTML = ''; return; }
+      const vmax = Math.max(1, ...pts.map(o => o.c)) * 1.12;
+      const X = k => 1 + (k - k0) / (12 * SH) * (W - 5), Y = v => H - 2 - v / vmax * (H - 6);
+      const d = pts.map((o, i) => (i ? 'L' : 'M') + X(o.k).toFixed(1) + ',' + Y(o.c).toFixed(1)).join('');
+      const e = pts[pts.length - 1];
+      el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true"><path class="sp-area" d="${d}L${X(e.k).toFixed(1)},${H}L${X(pts[0].k).toFixed(1)},${H}Z"/><path class="sp-line" d="${d}"/><circle class="sp-end" cx="${X(e.k).toFixed(1)}" cy="${Y(e.c).toFixed(1)}" r="2.6"/></svg>`;
+    });
+  }
+
+  /* ---------- patient page ---------- */
+  function patchText(p, m) {
+    if (!p.patch) return 'None';
+    if (m.sensor === 'expired') return 'Expired';
+    if (m.sensor === 'warmup') return 'Warming up';
+    const sig = { good: 'signal good', expiring: 'signal good', weak: 'weak signal', lost: 'no signal' }[m.sensor];
+    return `${Math.floor(m.patchAgeH)} h of 72 h · ${sig}`;
+  }
+  function headHtml(p, m) {
+    const S = STATUS[m.status], sen = SENSOR[m.sensor], labs = m.labs, lab = labs[labs.length - 1], lab0 = labs[0];
+    const facts = [
+      ['Current dose', `${fmtMg(p.regimen.dose)} IV every ${p.tau} h`],
+      ['Next dose', `${timeOnly(m.nextK)} <span class="muted">in ${untilK(m.nextK)}</span>`],
+      ['Exposure, last 24 h', m.auc24 != null ? `${fmtInt(m.auc24)} <span class="muted">mg·h/L</span>` : 'Available after day 1'],
+      ['Expected on this dose', m.status === 'estimating' ? 'Estimating' : `${fmtInt(m.ss)} <span class="muted">(${fmtInt(m.ssLo)}–${fmtInt(m.ssHi)})</span>`],
+      ['Patch', patchText(p, m)],
+      ['Creatinine', `${fmtInt(lab.scrUmol)} µmol/L` + (labs.length > 1 ? ` <span class="muted">(${fmtInt(lab0.scrUmol)} on admission)</span>` : '')],
+    ];
+    return `<div class="pv-title"><span class="bed">Bed ${p.bed}</span><h1>${esc(p.name)}</h1>${chip(S)}${sen ? chip(sen, ICON.patch) : ''}</div>
+      <p class="sub">${p.age} ${p.sex === 'F' ? 'female' : 'male'} · ${p.wt} kg · ${esc(p.indication)} · Day ${m.day} of vancomycin</p>
+      <dl class="facts">${facts.map(([k, v]) => `<div class="fact"><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>`;
+  }
+  function reasons(p, m) {
+    const out = [], first = esc(p.name.split(' ')[0]);
+    if (m.clChange != null && Math.abs(m.clChange) >= 0.1) {
+      const slower = m.clChange < 0;
+      out.push(`${first} is clearing the drug <b>${Math.round(Math.abs(m.clChange) * 100)}% ${slower ? 'slower' : 'faster'}</b> than 24 hours ago. ${slower ? 'This often means kidney function is falling.' : 'Faster clearance is common in younger or critically ill patients.'}`);
+    }
+    const labs = m.labs;
+    if (labs.length >= 2) {
+      const a = labs[labs.length - 2], b = labs[labs.length - 1], ch = b.scrUmol / a.scrUmol - 1;
+      if (Math.abs(ch) >= 0.15) out.push(`Creatinine ${ch > 0 ? 'rose' : 'fell'} from ${fmtInt(a.scrUmol)} to ${fmtInt(b.scrUmol)} µmol/L (test at ${timeK(b.k)}).`);
+      else if (m.clChange != null && m.clChange <= -0.15) out.push(`Creatinine has not risen yet (${fmtInt(b.scrUmol)} µmol/L at ${timeK(b.k)}). The patch usually shows a kidney change first.`);
+    }
+    out.push(`On ${fmtMg(p.regimen.dose)}, daily exposure is expected to settle near <b>${fmtInt(m.ss)} mg·h/L</b>, ${m.ss > E.TARGET.hi ? 'above' : 'below'} the 400–600 target.`);
+    out.push(`Based on ${m.nObs} patch readings from the last 24 hours. Confidence: ${m.conf.toLowerCase()}.`);
+    return out;
+  }
+  const tag = v => v > E.TARGET.hi ? '<span class="tag crit">Above target</span>' : v < E.TARGET.lo ? '<span class="tag warn">Below target</span>' : '<span class="tag ok">In target</span>';
+  function modePanel(p, m, D) {
+    const r = m.rec, next = timeOnly(p.regimen.nextK), cur = p.regimen.dose;
+    const cancel = '<button class="btn" data-action="dec-mode" data-v="" data-key="dec-cancel">Cancel</button>';
+    const checkbox = `<label class="check"><input type="checkbox" id="dec-check" data-key="dec-check"${D.checked ? ' checked' : ''}><span>I have reviewed the drug levels and the patient's condition.</span></label>
+      <p class="fine">Signed as ${NURSE.name}. The change goes to pharmacy for verification.</p>`;
+    if (D.mode === 'approve') {
+      return `<div class="confirm"><p><b>Approve ${fmtMg(r.dose)} IV every ${p.tau} h, starting with the ${next} dose.</b></p>${checkbox}
+        <div class="actions"><button class="btn primary" id="dec-go" data-action="dec-confirm" data-key="dec-go" disabled>Confirm approval</button>${cancel}</div></div>`;
+    }
+    if (D.mode === 'change') {
+      const opts = [];
+      for (let d = Math.max(E.DOSE.min, r.dose - 750); d <= Math.min(E.DOSE.max, r.dose + 750); d += E.DOSE.step) opts.push(d);
+      if (!opts.includes(cur)) { opts.push(cur); opts.sort((a, b) => a - b); }
+      return `<div class="confirm">
+        <fieldset style="border:0;margin:0;padding:0;min-width:0"><legend class="lbl" style="margin-bottom:8px">Choose a dose every ${p.tau} h</legend>
+        <div class="dose-opts">${opts.map(d => { const ss = ward.exposureFor(p, d); return `<label class="dose-opt"><input type="radio" name="dec-dose" value="${d}"${d === D.dose ? ' checked' : ''}><span class="do-main"><span class="do-top"><b class="mono">${fmtMg(d)}</b>${d === r.dose ? '<span class="do-tag">Recommended</span>' : d === cur ? '<span class="do-tag">Current</span>' : ''}</span><span class="do-sub">Expected ${fmtInt(ss)} · ${ss > E.TARGET.hi ? 'above target' : ss < E.TARGET.lo ? 'below target' : 'in target'}</span></span></label>`; }).join('')}</div></fieldset>
+        <div class="field" id="reason-field"${D.dose === r.dose ? ' hidden' : ''}><label for="dec-reason">Reason for a different dose</label><select id="dec-reason" data-key="dec-reason"><option value="">Choose a reason</option>${REASONS.map(x => `<option${x === D.reason ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select></div>
+        ${checkbox}
+        <div class="actions"><button class="btn primary" id="dec-go" data-action="dec-confirm" data-key="dec-go" disabled>Confirm dose</button>${cancel}</div></div>`;
+    }
+    return `<div class="confirm">
+      <div class="field"><label for="dec-reason">Reason for declining</label><select id="dec-reason" data-key="dec-reason"><option value="">Choose a reason</option>${REASONS.map(x => `<option${x === D.reason ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select></div>
+      <p class="fine">Bed ${p.bed} stays on ${fmtMg(cur)}. DoseControl won't suggest another change for 6 hours unless exposure moves far outside the target.</p>
+      <div class="actions"><button class="btn primary" id="dec-go" data-action="dec-confirm" data-key="dec-go" disabled>Decline recommendation</button>${cancel}</div></div>`;
+  }
+  function recPanel(p, m) {
+    const r = m.rec, cur = p.regimen.dose, lower = r.dose < cur;
+    const D = UI.decision.pid === p.id ? UI.decision : blankDecision();
+    const buttons = `<div class="actions">
+      <button class="btn primary" data-action="dec-mode" data-v="approve" data-key="dec-approve">Approve ${fmtMg(r.dose)}</button>
+      <button class="btn" data-action="dec-mode" data-v="change" data-key="dec-change">Choose another dose</button>
+      <button class="btn quiet" data-action="dec-mode" data-v="decline" data-key="dec-decline">Decline</button></div>`;
+    return `<section class="decide" aria-labelledby="dec-title">
+      <div><div class="eyebrow">Recommendation · needs approval</div>
+        <h2 id="dec-title">${lower ? 'Lower' : 'Raise'} the dose to ${fmtMg(r.dose)} every ${p.tau} h</h2>
+        <p class="sub">Starts with the ${timeOnly(p.regimen.nextK)} dose, in ${untilK(p.regimen.nextK)}. Currently ${fmtMg(cur)}.</p></div>
+      <div class="compare">
+        <div class="opt"><span class="opt-l">If unchanged · ${fmtMg(cur)}</span><span class="big">${fmtInt(m.ss)}</span><span class="unit">mg·h/L expected (${fmtInt(m.ssLo)}–${fmtInt(m.ssHi)})</span>${tag(m.ss)}</div>
+        <div class="arrow" aria-hidden="true">→</div>
+        <div class="opt rec"><span class="opt-l">Recommended · ${fmtMg(r.dose)}</span><span class="big">${fmtInt(r.ss)}</span><span class="unit">mg·h/L expected (${fmtInt(r.ssLo)}–${fmtInt(r.ssHi)})</span>${tag(r.ss)}</div>
+      </div>
+      <ul class="why">${reasons(p, m).map(w => `<li>${w}</li>`).join('')}</ul>
+      ${D.mode ? modePanel(p, m, D) : buttons}
+    </section>`;
+  }
+  function calmPanel(p, m) {
+    const reg = `${fmtMg(p.regimen.dose)} every ${p.tau} h`;
+    let cls = 'ok', icon = ICON.check, title, text;
+    if (m.status === 'estimating') {
+      cls = 'info'; icon = ICON.clock; title = 'Building the first estimate';
+      text = `DoseControl needs about 2 hours of patch readings before it suggests doses (${m.nObs} of 8 so far, ready in about ${readyIn(p, m)}). Until then, give the prescribed ${reg}.`;
+    } else if (m.sensor === 'weak') {
+      cls = 'warn'; icon = ICON.warn; title = 'Dose suggestions paused: weak patch signal';
+      text = `Readings are noisy or missing, so DoseControl won't suggest dose changes until the signal recovers. Check that the patch is firmly attached. On ${reg}, exposure is currently expected near ${fmtInt(m.ss)} mg·h/L.`;
+    } else if (m.sensor === 'expired' || m.sensor === 'lost') {
+      cls = 'crit'; icon = ICON.alert;
+      title = m.sensor === 'expired' ? 'Dose checks paused: the patch has expired' : 'Dose checks paused: no patch signal';
+      text = `The last reliable estimate is from ${timeK(p.fit.lastGoodK != null ? p.fit.lastGoodK : p.fit.k)} and is becoming less certain. ${m.sensor === 'expired' ? 'Apply a new patch' : 'Check the patch and the reader'} to resume.`;
+    } else if (m.status === 'watch') {
+      cls = 'warn'; icon = ICON.warn; title = 'Exposure is outside the target';
+      text = `On ${reg}, exposure is expected to settle near ${fmtInt(m.ss)} mg·h/L. ` + (p.decisionK != null ? `A decision was recorded at ${timeK(p.decisionK)}; DoseControl will suggest a change again if exposure stays outside the target.` : 'DoseControl will suggest a change once its estimate is confident enough.');
+    } else if (m.status === 'settling') {
+      cls = 'info'; icon = ICON.wave; title = 'Settling after a dose change';
+      text = `The last 24 hours came to ${fmtInt(m.auc24)} mg·h/L. On ${reg}, exposure is expected to settle near ${fmtInt(m.ss)}, inside the target.`;
+    } else {
+      title = 'No dose change needed';
+      text = `On ${reg}, exposure is expected to settle near ${fmtInt(m.ss)} mg·h/L (${fmtInt(m.ssLo)}–${fmtInt(m.ssHi)}), inside the 400–600 target.`;
+    }
+    return `<section class="decide calm"><div class="calm-row"><span class="calm-ic ${cls}">${icon}</span><div><h2>${title}</h2><p class="sub">${text}</p></div></div></section>`;
+  }
+  function renderDecision(p, m) {
+    const el = $('#pv-decision'), recKey = p.rec ? p.rec.k + ':' + p.rec.dose : 'none', D = UI.decision;
+    if (D.pid === p.id && D.mode && D.recKey !== recKey) {
+      UI.decision = blankDecision(); forceDecision = true;
+      toast(p.rec ? `The recommendation for Bed ${p.bed} changed. Review the new one.` : `The recommendation for Bed ${p.bed} was withdrawn.`);
+    }
+    const interactive = UI.decision.pid === p.id && UI.decision.mode;
+    if (interactive && !forceDecision) return;
+    forceDecision = false;
+    withFocus(() => { el.innerHTML = p.rec ? recPanel(p, m) : calmPanel(p, m); });
+    if (interactive) syncDecisionControls();
+  }
+  function syncDecisionControls() {
+    const D = UI.decision, p = D.pid && ward.get(D.pid), btn = $('#dec-go');
+    if (!p || !p.rec || !btn) return;
+    let ok = false;
+    if (D.mode === 'approve') ok = D.checked;
+    if (D.mode === 'change') {
+      const needReason = D.dose !== p.rec.dose, f = $('#reason-field');
+      if (f) f.hidden = !needReason;
+      ok = D.checked && (!needReason || !!D.reason);
+    }
+    if (D.mode === 'decline') ok = !!D.reason;
+    btn.disabled = !ok;
+  }
+  function dosesHtml(p, m) {
+    const rows = [];
+    for (let i = 0, kk = p.regimen.nextK; i < 2; i++, kk += p.tauK) {
+      rows.push(`<div class="row">${timeHtml(kk)}<span>${fmtMg(p.regimen.dose)} <span class="muted">over ${fmtDur(infK(p.regimen.dose) * DT)}</span></span><span class="st ${i === 0 ? 'next' : ''}">${i === 0 ? (p.rec ? 'Next · change suggested' : 'Next') : 'Scheduled'}</span></div>`);
+    }
+    const given = p.doses.slice(-4).reverse().map(d => `<div class="row">${timeHtml(d.k)}<span>${fmtMg(d.amt)} <span class="muted">over ${fmtDur(d.tinf)}</span></span><span class="st">${d === p.doses[0] ? 'Loading dose' : 'Given'}</span></div>`);
+    return `<div class="panel-h"><div><h2>Doses</h2><p class="cap">IV vancomycin every ${p.tau} hours</p></div></div>
+      <div class="rows"><div class="row-h">Upcoming</div>${rows.join('')}<div class="row-h" style="padding-top:12px">Given</div>${given.join('')}</div>`;
+  }
+  function patchHtml(p, m) {
+    const P = p.patch;
+    if (!P) return '<div class="panel-h"><h2>Patch</h2></div><p class="fine">No patch recorded.</p>';
+    const age = m.patchAgeH, pct = Math.min(100, age / E.PATCH_LIFE_H * 100);
+    const wearCls = m.sensor === 'expired' ? 'crit' : E.PATCH_LIFE_H - age < 6 ? 'warn' : '';
+    const sig = { good: 'Good', expiring: 'Good', weak: 'Weak', lost: 'No signal', expired: 'Stopped', warmup: 'Warming up', none: 'None' }[m.sensor];
+    const lr = m.lastReading;
+    const extra = UI.detail ? `<dt>Patch ID</dt><dd>${esc(P.id)}</dd><dt>Applied</dt><dd>${timeK(P.k)}</dd>
+      <dt>Last reading</dt><dd>${lr ? `${fmt1(lr.v)} mg/L at ${timeOnly(lr.k)}` : 'None yet'}</dd>
+      <dt>Skin-fluid delay</dt><dd>about ${Math.round(E.EST_LAG * 60)} min</dd>
+      <dt>Battery</dt><dd>${Math.max(5, Math.round(100 - Math.min(age, 72) / 72 * 70))}%</dd>` : '';
+    const action = UI.patchConfirm === p.id
+      ? `<div class="confirm"><p>Record that the old patch was removed and a new patch is on. Readings resume after a 1-hour warm-up.</p>
+         <div class="actions"><button class="btn primary" data-action="patch-confirm" data-key="patch-confirm">Record new patch</button><button class="btn" data-action="patch-cancel" data-key="patch-cancel">Cancel</button></div></div>`
+      : `<div class="actions"><button class="btn small" data-action="patch-new" data-key="patch-new">Record new patch</button></div>`;
+    return `<div class="panel-h"><div><h2>Patch</h2><p class="cap">Microneedle sensor reading the drug in the fluid under the skin</p></div></div>
+      <div class="wear-row"><span>Worn ${Math.floor(age)} h of 72 h</span><span class="muted">${m.sensor === 'expired' ? 'Ended' : 'Ends'} ${timeK(patchEndsK(p))}</span></div>
+      <div class="wear ${wearCls}" role="img" aria-label="Patch worn ${Math.floor(age)} of 72 hours"><span style="width:${pct}%"></span></div>
+      <dl class="kv"><dt>Signal</dt><dd>${sig}</dd><dt>Readings in the last hour</dt><dd>${m.readingsHour} of ${Math.max(4, m.readingSlots)}</dd>${extra}</dl>${action}`;
+  }
+  function modelHtml(p, m) {
+    const F = p.fit, z = 1.645 * F.sd;
+    return `<div class="panel-h"><div><h2>Dosing model</h2><p class="cap">How DoseControl estimates this patient</p></div></div>
+      <dl class="kv"><dt>Drug clearance</dt><dd>${F.cl.toFixed(2)} L/h (${(F.cl * Math.exp(-z)).toFixed(2)}–${(F.cl * Math.exp(z)).toFixed(2)})</dd>
+      <dt>Central volume</dt><dd>${Math.round(F.v1)} L</dd><dt>Peripheral volume</dt><dd>${Math.round(E.PK.V2)} L (fixed)</dd>
+      <dt>Skin-fluid delay</dt><dd>${Math.round(E.EST_LAG * 60)} min (assumed)</dd><dt>Readings used</dt><dd>${m.nObs} in 24 h</dd><dt>Confidence</dt><dd>${m.conf}</dd></dl>
+      <p class="fine">Two-compartment vancomycin model (Goti et al., 2018), fitted to the patch readings with Bayesian estimation. The model lets clearance change over the last 12 hours, so the estimate follows changes in kidney function. Suggestions pause while the patch signal is weak.</p>`;
+  }
+  function kidneyHtml(p, m) {
+    return `<div class="panel-h"><div><h2>Kidney function</h2><p class="cap">Morning creatinine and estimated creatinine clearance</p></div></div>
+      <div class="rows">${m.labs.slice().reverse().map((l, i, a) => `<div class="row">${timeHtml(l.k)}<span>${fmtInt(l.scrUmol)} µmol/L${i === a.length - 1 ? ' <span class="muted">admission</span>' : ''}</span><span class="st">CrCl ${fmtInt(l.crcl)} mL/min</span></div>`).join('')}</div>`;
+  }
+  function logHtml(p) {
+    const DOT = { rec: 'acc', approve: 'ok', change: 'ok', pharmacy: 'ok', decline: 'warn', warn: 'warn', sensor: 'warn' };
+    const items = p.log.slice().reverse(), show = UI.showAllLog ? items : items.slice(0, 8);
+    return `<div class="panel-h"><div><h2>Activity</h2><p class="cap">Recommendations, decisions, doses and patch events</p></div></div>
+      <ol class="log">${show.map(l => `<li>${timeHtml(l.k)}<div><span class="ld ${DOT[l.type] || ''}" aria-hidden="true"></span>${esc(l.text)}${l.by ? ` <span class="by">· ${esc(l.by)}</span>` : ''}</div></li>`).join('')}</ol>
+      ${items.length > 8 ? `<div><button class="btn quiet small" data-action="log-all" data-key="log-all">${UI.showAllLog ? 'Show fewer' : `Show all ${items.length}`}</button></div>` : ''}`;
+  }
+  function bodyHtml(p, m) {
+    const ranges = [12, 24, 48, 72].map(h => `<button data-action="range" data-v="${h}" data-key="r-${h}" aria-pressed="${UI.range === h}">${h} h</button>`).join('');
+    const legend = [
+      '<span class="lg"><span class="sw-line"></span>Blood level, estimated</span>',
+      UI.detail ? '<span class="lg"><span class="sw-dot"></span>Patch readings (skin fluid, about 45 min behind)</span>' : '',
+      `<span class="lg"><span class="sw-dash"></span>Forecast on ${fmtMg(p.regimen.dose)}</span>`,
+      p.rec ? `<span class="lg"><span class="sw-dash acc"></span>Forecast on ${fmtMg(p.rec.dose)} (recommended)</span>` : '',
+      '<span class="lg"><span class="sw-dose"></span>Dose infusions</span>',
+    ].join('');
+    return `
+      <section class="panel">
+        <div class="panel-h"><div><h2>Drug level</h2><p class="cap">Vancomycin in the blood, mg/L, with the next 12 hours forecast</p></div>
+          <div class="seg" role="group" aria-label="Time range">${ranges}</div></div>
+        <div class="legend">${legend}</div>
+        <div class="chart" id="ch-level"></div>
+      </section>
+      <div class="cols">
+        <div class="col">
+          <section class="panel"><div class="panel-h"><div><h2>Daily exposure</h2><p class="cap">24-hour AUC by treatment day, mg·h/L</p></div></div><div class="chart" id="ch-exp"></div></section>
+          ${UI.detail ? '<section class="panel"><div class="panel-h"><div><h2>Drug clearance</h2><p class="cap">Estimated clearance, L/h, with 90% range. A fall usually means kidney function is falling.</p></div></div><div class="chart" id="ch-cl"></div></section>' : ''}
+          <section class="panel">${dosesHtml(p, m)}</section>
+        </div>
+        <div class="col">
+          <section class="panel">${patchHtml(p, m)}</section>
+          ${UI.detail ? `<section class="panel">${modelHtml(p, m)}</section><section class="panel">${kidneyHtml(p, m)}</section>` : ''}
+          <section class="panel">${logHtml(p)}</section>
+        </div>
+      </div>`;
+  }
+  function renderPatient(p) {
+    const m = M(p);
+    if (main.dataset.view !== p.id) {
+      main.dataset.view = p.id; UI.hover = null; UI.showAllLog = false; forceDecision = true;
+      main.innerHTML = `<a class="back" href="#" data-key="back">${ICON.back}All patients</a><section class="pv-head" id="pv-head"></section><div id="pv-decision"></div><div class="pv-grid" id="pv-body"></div>`;
+    }
+    $('#pv-head').innerHTML = headHtml(p, m);
+    renderDecision(p, m);
+    withFocus(() => { $('#pv-body').innerHTML = bodyHtml(p, m); });
+    drawLevel($('#ch-level'), p, m);
+    drawExposure($('#ch-exp'), p);
+    if (UI.detail) drawClearance($('#ch-cl'), p);
+  }
+
+  /* ---------- charts ---------- */
+  function xTicks(k0, k1, X, H, W, R) {
+    const span = (k1 - k0) / SH, stepK = (span <= 30 ? 3 : span <= 40 ? 6 : 12) * SH;
+    let s = '', kt = k0 + ((stepK - ((ward.clockSteps(k0) % stepK) + stepK) % stepK) % stepK);
+    for (; kt <= k1; kt += stepK) {
+      const x = X(kt), w = wallK(kt);
+      if (x > W - R - 16) continue;
+      const lab = w.hh === 0 && w.mm === 0 ? dayDate(w.day).toLocaleDateString('en-CA', { weekday: 'short' }) : hhmm(w);
+      s += `<text class="c-ax" x="${x.toFixed(1)}" y="${H - 7}" text-anchor="middle">${lab}</text>`;
+    }
+    return s;
+  }
+  function drawLevel(el, p, m) {
+    if (!el) return;
+    const W = Math.max(300, Math.round(el.clientWidth)), H = W < 560 ? 230 : 280;
+    const L = 46, R = 14, T = 28, B = 28, pw = W - L - R, ph = H - T - B;
+    const kNow = ward.k, k0 = kNow - UI.range * SH, k1 = kNow + 12 * SH;
+    const X = k => L + (k - k0) / (k1 - k0) * pw;
+    const est = p.est.filter(o => o.k >= k0 && o.k <= kNow);
+    const reads = UI.detail ? p.readings.filter(o => o.v !== null && o.k >= k0 && o.k <= kNow) : [];
+    const fc = ward.forecast(p, p.regimen.dose, 12), fr = p.rec ? ward.forecast(p, p.rec.dose, 12) : null;
+    let vmax = 10;
+    for (const o of est) vmax = Math.max(vmax, o.c);
+    for (const o of reads) vmax = Math.max(vmax, o.v);
+    for (const o of fc) vmax = Math.max(vmax, o.c);
+    if (fr) for (const o of fr) vmax = Math.max(vmax, o.c);
+    const yt = niceScale(vmax * 1.06, 4), Y = v => T + ph - v / yt.max * ph;
+    const line = arr => arr.map((o, i) => (i ? 'L' : 'M') + X(o.k).toFixed(1) + ',' + Y(o.c).toFixed(1)).join('');
+    const aria = `Drug level over the last ${UI.range} hours and forecast for the next 12 hours. Estimated level now ${fmt1(m.level)} mg/L.`;
+    let s = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(aria)}">`;
+    s += `<rect class="c-zone" x="${X(kNow).toFixed(1)}" y="${T}" width="${(X(k1) - X(kNow)).toFixed(1)}" height="${ph}"/>`;
+    for (let v = 0; v <= yt.max + 1e-9; v += yt.step) s += `<line class="c-grid" x1="${L}" x2="${W - R}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}"/><text class="c-ax" x="${L - 8}" y="${(Y(v) + 4).toFixed(1)}" text-anchor="end">${+v.toFixed(1)}</text>`;
+    s += `<text class="c-ax" x="${L - 8}" y="${T - 12}" text-anchor="end">mg/L</text>`;
+    s += `<text class="c-zl" x="${(W - R - 6).toFixed(1)}" y="${T + 15}" text-anchor="end">Next 12 h</text>`;
+    s += xTicks(k0, k1, X, H, W, R);
+    const sched = [];
+    for (let kk = p.regimen.nextK; kk <= k1; kk += p.tauK) sched.push({ k: kk, amt: p.regimen.dose, infK: infK(p.regimen.dose), future: true });
+    const ds = p.doses.filter(d => d.k + d.infK >= k0 && d.k <= kNow).concat(sched);
+    const spacing = (p.tauK / (k1 - k0)) * pw;
+    for (const d of ds) {
+      const x0 = Math.max(L, X(d.k)), x1 = X(Math.min(k1, d.k + d.infK));
+      s += `<rect class="${d.future ? 'c-dose-f' : 'c-dose'}" x="${x0.toFixed(1)}" y="${T + ph - 7}" width="${Math.max(3, x1 - x0).toFixed(1)}" height="7" rx="2"><title>${d.future ? 'Scheduled' : 'Given'} ${timeK(d.k)}: ${fmtMg(d.amt)}</title></rect>`;
+      if (X(d.k) >= L && x0 < W - R - 30) s += `<text class="c-dl" x="${x0.toFixed(1)}" y="${T + ph - 12}">${d.amt.toLocaleString('en-CA')}${spacing > 70 ? ' mg' : ''}</text>`;
+    }
+    if (reads.length) s += `<g class="c-reads">${reads.map(o => `<circle cx="${X(o.k).toFixed(1)}" cy="${Y(o.v).toFixed(1)}" r="2.2"/>`).join('')}</g>`;
+    s += `<path class="c-fc" d="${line(fc)}"/>`;
+    if (fr) s += `<path class="c-fr" d="${line(fr)}"/>`;
+    if (est.length) s += `<path class="c-est" d="${line(est)}"/>`;
+    s += `<line class="c-now" x1="${X(kNow).toFixed(1)}" x2="${X(kNow).toFixed(1)}" y1="${T - 6}" y2="${T + ph}"/><text class="c-nowl" x="${X(kNow).toFixed(1)}" y="${T - 10}" text-anchor="middle">Now</text>`;
+    if (est.length) { const e = est[est.length - 1]; s += `<circle class="c-end" cx="${X(e.k).toFixed(1)}" cy="${Y(e.c).toFixed(1)}" r="4"/>`; }
+    s += `<line class="c-guide" x1="0" x2="0" y1="${T}" y2="${T + ph}" visibility="hidden"/><circle class="c-hdot" cx="0" cy="0" r="4.5" visibility="hidden"/>`;
+    s += `<rect class="c-hit" x="${L}" y="${T}" width="${pw}" height="${ph}"/></svg>`;
+    el.innerHTML = s + '<div class="tip" hidden></div>';
+    const svg = el.querySelector('svg'), tip = el.querySelector('.tip'), guide = svg.querySelector('.c-guide'), dot = svg.querySelector('.c-hdot');
+    const show = xv => {
+      const k = k0 + (xv - L) / pw * (k1 - k0);
+      let rows, kk, yv;
+      if (k <= kNow) {
+        const o = nearest(est, k);
+        if (!o) return;
+        kk = o.k; yv = o.c; rows = [`Blood level (est.) <b>${fmt1(o.c)}</b> mg/L`];
+        const r = reads.length ? nearest(reads, k) : null;
+        if (r && Math.abs(r.k - o.k) <= 3) rows.push(`Patch reading <b>${fmt1(r.v)}</b> mg/L`);
+      } else {
+        const o = nearest(fc, k);
+        kk = o.k; yv = o.c; rows = [`Forecast on ${fmtMg(p.regimen.dose)} <b>${fmt1(o.c)}</b> mg/L`];
+        if (fr) rows.push(`On ${fmtMg(p.rec.dose)} <b>${fmt1(nearest(fr, k).c)}</b> mg/L`);
+      }
+      const x = X(kk);
+      guide.setAttribute('x1', x); guide.setAttribute('x2', x); guide.setAttribute('visibility', 'visible');
+      dot.setAttribute('cx', x); dot.setAttribute('cy', Y(yv)); dot.setAttribute('visibility', 'visible');
+      tip.innerHTML = `<div class="tip-t">${timeK(kk)}</div>` + rows.map(r => `<div>${r}</div>`).join('');
+      tip.hidden = false;
+      const scale = svg.getBoundingClientRect().width / W, px = x * scale, tw = tip.offsetWidth, cw = el.clientWidth;
+      tip.style.left = (px + 14 + tw > cw ? Math.max(0, px - tw - 14) : px + 14) + 'px';
+      UI.hover = { id: 'ch-level', xv };
+    };
+    svg.addEventListener('pointermove', ev => { const r = svg.getBoundingClientRect(); show((ev.clientX - r.left) * W / r.width); });
+    svg.addEventListener('pointerleave', () => { guide.setAttribute('visibility', 'hidden'); dot.setAttribute('visibility', 'hidden'); tip.hidden = true; UI.hover = null; });
+    if (UI.hover && UI.hover.id === 'ch-level') show(UI.hover.xv);
+  }
+  function drawExposure(el, p) {
+    if (!el) return;
+    const days = ward.dayExposures(p);
+    if (!days.length) { el.innerHTML = '<p class="empty">Shown once the first 24 hours of treatment are complete.</p>'; return; }
+    const W = Math.max(280, Math.round(el.clientWidth)), H = 220, L = 46, R = 12, T = 22, B = 30, pw = W - L - R, ph = H - T - B;
+    const yt = niceScale(Math.max(800, ...days.map(d => d.auc * 1.14)), 4), Y = v => T + ph - v / yt.max * ph;
+    const slot = pw / days.length, bw = Math.min(46, slot * 0.58), short = slot < 64;
+    let s = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Daily exposure by treatment day against the 400 to 600 target">`;
+    s += `<rect class="c-band" x="${L}" y="${Y(600).toFixed(1)}" width="${pw}" height="${(Y(400) - Y(600)).toFixed(1)}"/>`;
+    for (let v = 0; v <= yt.max + 1e-9; v += yt.step) s += `<line class="c-grid" x1="${L}" x2="${W - R}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}"/><text class="c-ax" x="${L - 8}" y="${(Y(v) + 4).toFixed(1)}" text-anchor="end">${v}</text>`;
+    for (const v of [400, 600]) if ((v / yt.step) % 1) s += `<text class="c-ax" x="${L - 8}" y="${(Y(v) + 4).toFixed(1)}" text-anchor="end">${v}</text>`;
+    s += `<line class="c-bandline" x1="${L}" x2="${W - R}" y1="${Y(600).toFixed(1)}" y2="${Y(600).toFixed(1)}"/><line class="c-bandline" x1="${L}" x2="${W - R}" y1="${Y(400).toFixed(1)}" y2="${Y(400).toFixed(1)}"/>`;
+    s += `<text class="c-bandl" x="${W - R - 4}" y="${(Y(600) + 14).toFixed(1)}" text-anchor="end">Target</text>`;
+    days.forEach((d, i) => {
+      const x = L + i * slot + (slot - bw) / 2, y = Y(d.auc), h = Y(0) - y, r = Math.min(4, h / 2, bw / 2);
+      const cls = d.auc > E.TARGET.hi ? 'c-bar-hi' : d.auc < E.TARGET.lo ? 'c-bar-lo' : 'c-bar';
+      const lab = short ? (d.rolling ? '24 h' : 'D' + (i + 1)) : d.label;
+      s += `<path class="${cls}" d="M${x.toFixed(1)},${(y + h).toFixed(1)}V${(y + r).toFixed(1)}Q${x.toFixed(1)},${y.toFixed(1)} ${(x + r).toFixed(1)},${y.toFixed(1)}H${(x + bw - r).toFixed(1)}Q${(x + bw).toFixed(1)},${y.toFixed(1)} ${(x + bw).toFixed(1)},${(y + r).toFixed(1)}V${(y + h).toFixed(1)}Z"><title>${d.label}: ${fmtInt(d.auc)} mg·h/L, ${d.auc > E.TARGET.hi ? 'above' : d.auc < E.TARGET.lo ? 'below' : 'in'} target</title></path>`;
+      const ly = y - 6, onBand = ly <= Y(400) + 2 && ly >= Y(600) - 2;
+      s += `<text class="c-val${onBand ? ' on-band' : ''}" x="${(x + bw / 2).toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle">${fmtInt(d.auc)}</text>`;
+      s += `<text class="c-ax" x="${(x + bw / 2).toFixed(1)}" y="${H - 9}" text-anchor="middle"${d.rolling ? ' font-weight="500"' : ''}>${lab}</text>`;
+    });
+    el.innerHTML = s + '</svg>';
+  }
+  function drawClearance(el, p) {
+    if (!el) return;
+    const kNow = ward.k, k0 = kNow - UI.range * SH;
+    const fits = p.fits.filter(f => !f.learning && f.k >= k0 && f.k <= kNow);
+    if (fits.length < 2) { el.innerHTML = '<p class="empty">Shown once DoseControl has an estimate.</p>'; return; }
+    const W = Math.max(280, Math.round(el.clientWidth)), H = 210, L = 46, R = 14, T = 24, B = 28, pw = W - L - R, ph = H - T - B;
+    const X = k => L + (k - k0) / (kNow - k0) * pw, z = 1.645;
+    const hi = f => f.cl * Math.exp(z * f.sd), lo = f => f.cl * Math.exp(-z * f.sd);
+    const yt = niceScale(Math.max(...fits.map(hi)) * 1.08, 4), Y = v => T + ph - v / yt.max * ph;
+    const P = (arr, fn) => arr.map((f, i) => (i ? 'L' : 'M') + X(f.k).toFixed(1) + ',' + Y(fn(f)).toFixed(1)).join('');
+    let s = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Estimated drug clearance over time with its 90 percent range">`;
+    for (let v = 0; v <= yt.max + 1e-9; v += yt.step) s += `<line class="c-grid" x1="${L}" x2="${W - R}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}"/><text class="c-ax" x="${L - 8}" y="${(Y(v) + 4).toFixed(1)}" text-anchor="end">${+v.toFixed(2)}</text>`;
+    s += `<text class="c-ax" x="${L - 8}" y="${T - 10}" text-anchor="end">L/h</text>`;
+    s += xTicks(k0, kNow, X, H, W, R);
+    s += `<path class="c-ci" d="${P(fits, hi)}${fits.slice().reverse().map(f => 'L' + X(f.k).toFixed(1) + ',' + Y(lo(f)).toFixed(1)).join('')}Z"/>`;
+    s += `<path class="c-est" d="${P(fits, f => f.cl)}"/>`;
+    const e = fits[fits.length - 1];
+    s += `<circle class="c-end" cx="${X(e.k).toFixed(1)}" cy="${Y(e.cl).toFixed(1)}" r="4"><title>Now: ${e.cl.toFixed(2)} L/h</title></circle></svg>`;
+    el.innerHTML = s;
+  }
+
+  /* ---------- drawers ---------- */
+  const closeBtn = '<button class="icon-btn" data-action="close-drawer" data-key="close-drawer" aria-label="Close">' + ICON.close + '</button>';
+  function alertsHtml() {
+    const all = computeAlerts(), open = all.filter(a => !UI.acked.has(a.key)), done = all.filter(a => UI.acked.has(a.key));
+    const item = (a, acked) => `<article class="alert sev${a.sev}">
+      <div class="alert-h"><span class="ai ${a.sev === 2 ? 'crit' : 'warn'}">${a.sev === 2 ? ICON.alert : ICON.warn}</span><span>${esc(a.title)}</span></div>
+      <div class="meta">Bed ${a.p.bed} · ${esc(a.p.name)} · ${timeK(a.k)}</div><p>${esc(a.text)}</p>
+      <div class="actions"><button class="btn small" data-action="goto" data-v="${a.p.id}" data-key="goto-${esc(a.key)}">Open patient</button>${acked ? '' : `<button class="btn small quiet" data-action="ack" data-v="${esc(a.key)}" data-key="ack-${esc(a.key)}">Acknowledge</button>`}</div></article>`;
+    return `<div class="drawer-h"><h2 id="drawer-title">Alerts</h2>${closeBtn}</div>
+      <p class="fine">Only alerts that need someone to act. Acknowledged alerts come back if the situation changes.</p>
+      ${open.length ? open.map(a => item(a, false)).join('') : '<p class="empty">No open alerts.</p>'}
+      ${done.length ? `<h3>Acknowledged</h3>${done.map(a => item(a, true)).join('')}` : ''}`;
+  }
+  function handoverText() {
+    mcache.clear();
+    const w = wallAt(sim.vt);
+    const lines = [`DoseControl handover · Ward 4B · ${dayDate(w.day).toLocaleDateString('en-CA', { weekday: 'short', month: 'short', day: 'numeric' })} ${hhmm(w)}`, 'Simulated patients (prototype).', ''];
+    ward.patients.slice().sort((a, b) => a.bed - b.bed).forEach(p => {
+      const m = M(p);
+      let t = `Bed ${p.bed} · ${p.name} · ${fmtMg(p.regimen.dose)} q${p.tau}h, next ${timeOnly(m.nextK)}`;
+      t += m.status === 'estimating' ? ' · first estimate pending' : ` · exposure ${m.auc24 != null ? fmtInt(m.auc24) : 'n/a'} last 24 h, expected ${fmtInt(m.ss)}`;
+      if (p.rec) t += ` · REVIEW: ${p.rec.dose < p.regimen.dose ? 'lower' : 'raise'} to ${fmtMg(p.rec.dose)} before ${timeOnly(p.regimen.nextK)}`;
+      if (m.sensor !== 'good') t += ` · patch: ${SENSOR[m.sensor].label.toLowerCase()}`;
+      lines.push(t);
+    });
+    return lines.join('\n');
+  }
+  function handoverHtml() {
+    return `<div class="drawer-h"><h2 id="drawer-title">Handover summary</h2>${closeBtn}</div>
+      <p class="fine">One line per patient, ready to paste into handover notes.</p>
+      <textarea id="handover-text" readonly aria-label="Handover summary text">${esc(handoverText())}</textarea>
+      <div class="actions"><button class="btn primary" data-action="copy" data-key="copy">Copy summary</button></div>`;
+  }
+  function demoHtml() {
+    const opts = ward.patients.slice().sort((a, b) => a.bed - b.bed).map(p => `<option value="${p.id}"${p.id === UI.demoPid ? ' selected' : ''}>Bed ${p.bed} · ${esc(p.name)}</option>`).join('');
+    const speeds = [[1, 'Real time'], [60, '×60'], [600, '×600'], [3600, '×3,600']];
+    return `<div class="drawer-h"><h2 id="drawer-title">Demo controls</h2>${closeBtn}</div>
+      <p class="fine">For presentations only. These controls change the simulated patients; nurses would not see this panel.</p>
+      <h3>Clock</h3>
+      <div class="seg" role="group" aria-label="Simulation speed" id="speed-seg">${speeds.map(([v, l]) => `<button data-action="speed" data-v="${v}" data-key="sp-${v}" aria-pressed="${sim.speed === v && !sim.paused}">${l}</button>`).join('')}</div>
+      <p class="fine">At ×600 one hour passes every 6 seconds; at ×3,600, every second.</p>
+      <div class="actions"><button class="btn small" id="pause-btn" data-action="pause" data-key="pause">${sim.paused ? 'Resume' : 'Pause'}</button><button class="btn small" data-action="jump" data-v="1" data-key="jump1">Skip 1 hour</button><button class="btn small" data-action="jump" data-v="6" data-key="jump6">Skip 6 hours</button></div>
+      <h3>Patient events</h3>
+      <div class="field"><label for="demo-pid">Patient</label><select id="demo-pid">${opts}</select></div>
+      <div class="demo-list">
+        <button class="btn small" data-action="demo-aki" data-key="d-aki">Start kidney injury</button>
+        <button class="btn small" data-action="demo-arc" data-key="d-arc">Start faster clearance</button>
+        <button class="btn small" data-action="demo-weak" data-key="d-weak">Weaken patch signal</button>
+        <button class="btn small" data-action="demo-lost" data-key="d-lost">Cut patch signal</button>
+        <button class="btn small" data-action="demo-restore" data-key="d-restore">Restore signal</button>
+      </div>
+      <p class="fine">Kidney changes build up slowly, as in real patients: a recommendation usually appears 7 to 14 simulated hours later, so about 10 seconds at ×3,600. Bed 1 responds fastest; patients who clear the drug slowly, like Bed 9, take longer.</p>
+      <h3>Reset</h3>
+      <div><button class="btn small" data-action="demo-reset" data-key="d-reset">Reset all patients</button></div>`;
+  }
+  function renderDrawer() {
+    const d = $('#drawer');
+    withFocus(() => { d.innerHTML = UI.drawer === 'alerts' ? alertsHtml() : UI.drawer === 'handover' ? handoverHtml() : demoHtml(); });
+  }
+  function syncDemo() {
+    const seg = $('#speed-seg');
+    if (seg) seg.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.v === sim.speed && !sim.paused)));
+    const pb = $('#pause-btn');
+    if (pb) pb.textContent = sim.paused ? 'Resume' : 'Pause';
+  }
+  function openDrawer(kind, opener) {
+    UI.drawer = kind; UI.opener = opener;
+    mcache.clear(); renderDrawer();
+    $('#drawer').hidden = false; $('#scrim').hidden = false;
+    const c = $('#drawer [data-action="close-drawer"]');
+    if (c) c.focus();
+  }
+  function closeDrawer() {
+    UI.drawer = null; $('#drawer').hidden = true; $('#scrim').hidden = true;
+    if (UI.opener && document.body.contains(UI.opener)) UI.opener.focus();
+    UI.opener = null;
+  }
+
+  /* ---------- render loop ---------- */
+  function render() {
+    mcache.clear();
+    renderBar();
+    const id = route();
+    if (id) renderPatient(ward.get(id)); else renderWard();
+    if (UI.drawer === 'alerts') renderDrawer();
+    if (UI.drawer === 'demo') syncDemo();
+  }
+  function tick() {
+    const now = performance.now();
+    let dt = (now - sim.last) / 1000;
+    sim.last = now;
+    if (sim.speed > 1) dt = Math.min(dt, 1);
+    if (!sim.paused) sim.vt += dt * sim.speed / 3600;
+    const kT = Math.floor(sim.vt / DT + 1e-9);
+    if (kT > ward.k) ward.advanceTo(kT);
+    updateClock();
+    const minute = Math.floor(sim.vt * 60);
+    if (minute !== lastMinute) { lastMinute = minute; dirty = true; }
+    if (dirty && now - lastRender > 240) { lastRender = now; dirty = false; render(); }
+  }
+
+  /* ---------- events ---------- */
+  function currentPatient() { const id = route(); return id ? ward.get(id) : null; }
+  function confirmDecision() {
+    const D = UI.decision, p = ward.get(D.pid);
+    if (!p || !p.rec) return;
+    const next = timeOnly(p.regimen.nextK);
+    if (D.mode === 'approve') {
+      const dose = p.rec.dose;
+      ward.approve(p.id, dose, NURSE.sign);
+      toast(`Approved ${fmtMg(dose)} every ${p.tau} h from the ${next} dose. Sent to pharmacy.`);
+    } else if (D.mode === 'change') {
+      const dose = D.dose, reason = dose !== p.rec.dose ? D.reason : '';
+      ward.approve(p.id, dose, NURSE.sign, reason);
+      toast(`Dose set to ${fmtMg(dose)} every ${p.tau} h from the ${next} dose. Sent to pharmacy.`);
+    } else if (D.mode === 'decline') {
+      const stay = p.regimen.dose;
+      ward.decline(p.id, NURSE.sign, D.reason);
+      toast(`Recommendation declined. Bed ${p.bed} stays on ${fmtMg(stay)}.`);
+    }
+    UI.decision = blankDecision(); forceDecision = true;
+    render();
+    const h = $('#pv-decision h2');
+    if (h) { h.setAttribute('tabindex', '-1'); h.focus({ preventScroll: true }); }
+  }
+  function copyHandover(btn) {
+    const ta = $('#handover-text');
+    ta.value = handoverText();
+    const fallback = () => { ta.focus(); ta.select(); toast('Text selected. Press Ctrl+C or ⌘C to copy it.'); };
+    const done = () => { btn.textContent = 'Copied'; setTimeout(() => { btn.textContent = 'Copy summary'; }, 1800); };
+    try { navigator.clipboard.writeText(ta.value).then(done, fallback); } catch (e) { fallback(); }
+  }
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-action]');
+    if (!b) return;
+    const a = b.dataset.action, v = b.dataset.v, p = currentPatient();
+    switch (a) {
+      case 'filter':
+        UI.filter = v;
+        if (route()) location.hash = ''; else render();
+        break;
+      case 'view': UI.detail = v === 'detailed'; store.set('dc-detail', v); UI.hover = null; render(); break;
+      case 'theme': UI.theme = { auto: 'light', light: 'dark', dark: 'auto' }[UI.theme] || 'auto'; store.set('dc-theme', UI.theme); applyTheme(); render(); break;
+      case 'open-alerts': openDrawer('alerts', b); break;
+      case 'open-handover': openDrawer('handover', b); break;
+      case 'open-demo': openDrawer('demo', b); break;
+      case 'close-drawer': closeDrawer(); break;
+      case 'ack': UI.acked.add(v); render(); renderDrawer(); break;
+      case 'goto': closeDrawer(); location.hash = v; break;
+      case 'range': UI.range = +v; UI.hover = null; render(); break;
+      case 'log-all': UI.showAllLog = !UI.showAllLog; render(); break;
+      case 'dec-mode':
+        if (!p || !p.rec) break;
+        UI.decision = v ? { pid: p.id, mode: v, dose: p.rec.dose, reason: '', checked: false, recKey: p.rec.k + ':' + p.rec.dose } : blankDecision();
+        forceDecision = true; render();
+        { const first = v === 'approve' ? $('#dec-check') : v === 'change' ? $('input[name="dec-dose"]:checked') : v === 'decline' ? $('#dec-reason') : $('[data-key="dec-approve"]'); if (first) first.focus(); }
+        break;
+      case 'dec-confirm': confirmDecision(); break;
+      case 'patch-new': if (p) { UI.patchConfirm = p.id; render(); const c = $('[data-key="patch-confirm"]'); if (c) c.focus(); } break;
+      case 'patch-cancel': UI.patchConfirm = null; render(); break;
+      case 'patch-confirm':
+        if (p) { ward.replacePatch(p.id, NURSE.sign); UI.patchConfirm = null; toast(`New patch recorded for Bed ${p.bed}. Readings resume in about 1 hour.`); render(); }
+        break;
+      case 'copy': copyHandover(b); break;
+      case 'speed': sim.speed = +v; sim.paused = false; syncDemo(); updateClock(); dirty = true; break;
+      case 'pause': sim.paused = !sim.paused; syncDemo(); updateClock(); break;
+      case 'jump': sim.vt += +v; ward.advanceTo(Math.floor(sim.vt / DT + 1e-9)); updateClock(); render(); toast(`Skipped ahead ${v} hour${+v === 1 ? '' : 's'}.`); break;
+      case 'demo-aki': ward.simulateKidneyInjury(UI.demoPid); toast(`Kidney injury started for ${bedName(UI.demoPid)}. Clearance will fall over the next few hours.`); break;
+      case 'demo-arc': ward.simulateFastClearance(UI.demoPid); toast(`Faster clearance started for ${bedName(UI.demoPid)}.`); break;
+      case 'demo-weak': ward.simulateSignal(UI.demoPid, 'weak'); toast(`Patch signal weakened for ${bedName(UI.demoPid)}.`); break;
+      case 'demo-lost': ward.simulateSignal(UI.demoPid, 'lost'); toast(`Patch signal cut for ${bedName(UI.demoPid)}.`); break;
+      case 'demo-restore': ward.simulateSignal(UI.demoPid, null); toast(`Patch signal restored for ${bedName(UI.demoPid)}.`); break;
+      case 'demo-reset': boot(); updateClock(); render(); renderDrawer(); toast('All patients reset.'); break;
+    }
+  });
+  function bedName(id) { const p = ward.get(id); return `Bed ${p.bed}`; }
+  document.addEventListener('change', e => {
+    const t = e.target, D = UI.decision;
+    if (t.id === 'dec-check') { D.checked = t.checked; syncDecisionControls(); }
+    else if (t.name === 'dec-dose') { D.dose = +t.value; syncDecisionControls(); }
+    else if (t.id === 'dec-reason') { D.reason = t.value; syncDecisionControls(); }
+    else if (t.id === 'demo-pid') { UI.demoPid = t.value; }
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && UI.drawer) closeDrawer(); });
+  window.addEventListener('hashchange', () => {
+    UI.hover = null; UI.patchConfirm = null;
+    if (UI.decision.pid && UI.decision.pid !== route()) UI.decision = blankDecision();
+    render(); window.scrollTo(0, 0);
+  });
+  let resizeTimer = null;
+  window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { dirty = true; }, 120); });
+
+  boot();
+  applyTheme();
+  updateClock();
+  render();
+  setInterval(tick, 250);
+})();
+</script>
+</body>
+</html>
